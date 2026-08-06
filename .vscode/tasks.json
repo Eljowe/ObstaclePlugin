@@ -59,6 +59,34 @@
       "problemMatcher": ["$msCompile"],
       "group": "test",
       "dependsOn": "Build WebUI"
+    },
+    {
+      "label": "Run Obstacle Release (standalone only)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "Get-Process -Name Obstacle -ErrorAction SilentlyContinue | Stop-Process -Force; cmake --build build --config Release --target Obstacle_Standalone; Start-Process -FilePath \".\\build\\Obstacle_artefacts\\Release\\Standalone\\Obstacle.exe\""
+      ],
+      "isBackground": false,
+      "problemMatcher": ["$msCompile"],
+      "group": "test",
+      "dependsOn": "Build WebUI"
+    },
+    {
+      "label": "Build + Run Obstacle (Release, standalone + VST3)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "Get-Process -Name Obstacle -ErrorAction SilentlyContinue | Stop-Process -Force; if (-not (Test-Path build -PathType Container)) { cmake -S . -B build | Out-Null }; cmake --build build --config Release --target Obstacle_Standalone Obstacle_VST3; Start-Process -FilePath \".\\build\\Obstacle_artefacts\\Release\\Standalone\\Obstacle.exe\""
+      ],
+      "isBackground": false,
+      "problemMatcher": ["$msCompile"],
+      "group": "test",
+      "dependsOn": "Build WebUI"
     }
   ]
 }
