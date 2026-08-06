@@ -75,18 +75,22 @@
       "dependsOn": "Build WebUI"
     },
     {
-      "label": "Build + Run Obstacle (Release, standalone + VST3)",
+      "label": "Build + Install + Run Obstacle (Release)",
       "type": "shell",
       "command": "powershell",
-      "args": [
-        "-NoProfile",
-        "-Command",
-        "Get-Process -Name Obstacle -ErrorAction SilentlyContinue | Stop-Process -Force; if (-not (Test-Path build -PathType Container)) { cmake -S . -B build | Out-Null }; cmake --build build --config Release --target Obstacle_Standalone Obstacle_VST3; Start-Process -FilePath \".\\build\\Obstacle_artefacts\\Release\\Standalone\\Obstacle.exe\""
-      ],
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "scripts\\build-install-run.ps1"],
       "isBackground": false,
       "problemMatcher": ["$msCompile"],
       "group": "test",
       "dependsOn": "Build WebUI"
+    },
+    {
+      "label": "Install VST3 to Program Files (elevated)",
+      "type": "shell",
+      "command": "powershell",
+      "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "cmake\\install-vst3-elevated.ps1"],
+      "isBackground": false,
+      "problemMatcher": []
     }
   ]
 }

@@ -2,9 +2,16 @@ cmake_minimum_required(VERSION 3.22)
 
 project(Obstacle VERSION 1.0.0)
 
+# CMake 4.x normalizes install() DESTINATION paths; with this policy set,
+# backslashes in -DOBSTACLE_VST3_DIR="C:\Users\...\VST3" are treated as
+# literal path separators instead of invalid escapes ("\U" errors).
+if(POLICY CMP0177)
+    cmake_policy(SET CMP0177 NEW)
+endif()
+
 set(JUCE_DIR "C:/JUCE/JUCE" CACHE PATH "Path to the JUCE source tree")
 
-add_subdirectory(${JUCE_DIR} JUCE)
+add_subdirectory(${JUCE_DIR} JUCE EXCLUDE_FROM_ALL)
 
 juce_add_plugin(Obstacle
     COMPANY_NAME "Retrokielto"
@@ -13,7 +20,7 @@ juce_add_plugin(Obstacle
     PLUGIN_MANUFACTURER_CODE Rtrk
     PLUGIN_CODE Obst
     FORMATS VST3 Standalone
-    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/favicon.ico"
+    ICON_BIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/icon-256.png"
     NEEDS_WEBVIEW2 TRUE
     COPY_PLUGIN_AFTER_BUILD FALSE
     NEEDS_MIDI_INPUT FALSE
@@ -51,3 +58,60 @@ target_link_libraries(Obstacle PRIVATE
     juce::juce_graphics
     juce::juce_gui_basics
     juce::juce_gui_extra)
+
+# ==============================================================================
+# Install rules
+#
+# After building, run from an *elevated* PowerShell so the install can write
+# to Program Files:
+#
+#   cmake --build build --config Release --target INSTALL
+#   # or equivalently:
+#   cmake --install build --config Release
+#
+# By default the standalone goes to C:\Program Files\Obstacle\Obstacle.exe
+# and the VST3 to C:\Program Files\Common Files\VST3\Obstacle.vst3 (so any
+# DAW that scans the standard VST3 folder picks it up). A Start Menu
+# shortcut named "Obstacle" is created in the *per-user* Start Menu
+# folder so Windows search finds it — that one doesn't need admin.
+#
+# To install without admin, point CMAKE_INSTALL_PREFIX at a user folder:
+#   cmake --install build --config Release --prefix C:\Users\<you>\Obstacle
+# Then add the VST3 location to your DAW's scan paths.
+# ==============================================================================
+if(WIN32)
+    # Where the VST3 bundle ends up. DAWs scan this folder by default.
+    # Override with -DOBSTACLE_VST3_DIR="..." if you keep your VST3s
+    # somewhere non-standard.
+    if(NOT DEFINED OBSTACLE_VST3_DIR)
+        set(OBSTACLE_VST3_DIR "C:/Program Files/Common Files/VST3")
+    endif()
+
+    # Standalone .exe → <prefix>/Obstacle.exe
+    install(PROGRAMS $<TARGET_FILE:Obstacle_Standalone>
+        DESTINATION .
+        RENAME Obstacle.exe)
+
+    # VST3 bundle → <OBSTACLE_VST3_DIR>/Obstacle.vst3
+    # Note: $<TARGET_FILE:Obstacle_VST3> points at the inner .vst3
+    # DLL inside the bundle, not at the bundle directory itself. JUCE
+    # emits the bundle at <bin>/Obstacle_artefacts/<Config>/VST3/,
+    # so we go through $<CONFIG> to pick the right one at install time.
+    install(DIRECTORY
+        "${CMAKE_BINARY_DIR}/Obstacle_artefacts/$<CONFIG>/VST3/Obstacle.vst3"
+        DESTINATION "${OBSTACLE_VST3_DIR}")
+
+    # Start Menu shortcut so Windows search picks up "Obstacle".
+    # install(SCRIPT) runs the .cmake at install time on the host.
+    install(SCRIPT "${CMAKE_CURRENT_SOURCE_DIR}/cmake/install-shortcut.cmake")
+
+    # Ship the WebUI build output next to the standalone so the running
+    # app can find WebUI/dist/index.html. findLocalWebUiDistIndex() in
+    # WebViewEditor.cpp walks up from the executable looking for this
+    # directory. Skip silently if it doesn't exist (e.g. a build done
+    # without running `npm install && npm run build` first).
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/WebUI/dist/index.html")
+        install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/WebUI/dist"
+            DESTINATION WebUI)
+    endif()
+endif()
