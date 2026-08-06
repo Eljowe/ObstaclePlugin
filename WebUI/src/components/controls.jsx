@@ -25,6 +25,7 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
   };
 
   const beginDrag = (event) => {
+    if (disabled) return;
     event.preventDefault();
     dragState.current = {
       pointerId: event.pointerId,
@@ -51,6 +52,7 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
   };
 
   const handleWheel = (event) => {
+    if (disabled) return;
     event.preventDefault();
     const direction = event.deltaY < 0 ? 1 : -1;
     const fineStep = Number(step) || range / 100;
@@ -58,6 +60,7 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
   };
 
   const handleKeyDown = (event) => {
+    if (disabled) return;
     const fineStep = Number(step) || range / 100;
     const coarseStep = fineStep * 10;
 
@@ -98,11 +101,12 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
       <div
         className="knob-shell"
         role="slider"
-        tabIndex={0}
+        tabIndex={disabled ? -1 : 0}
         aria-label={label}
         aria-valuemin={min}
         aria-valuemax={max}
         aria-valuenow={value}
+        aria-disabled={disabled}
         onPointerDown={beginDrag}
         onPointerMove={continueDrag}
         onPointerUp={endDrag}
@@ -124,13 +128,35 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
 }
 
 export function BypassButton({ label, enabled, onToggle, className = "" }) {
+  const isPower = className.includes("pedal-power");
+
   return (
     <button
       className={`bypass-button ${!enabled ? "active" : ""} ${className}`.trim()}
       type="button"
       onClick={onToggle}
       aria-label={label}
+      aria-pressed={!enabled}
       title={label}
-    />
+    >
+      {isPower ? (
+        <svg
+          className="power-icon"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.4"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <path d="M12 3v9" />
+          <path d="M6.2 6.5a8 8 0 1 0 11.6 0" />
+        </svg>
+      ) : (
+        <span>{label}</span>
+      )}
+    </button>
   );
 }

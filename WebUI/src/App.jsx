@@ -341,6 +341,7 @@ export default function App() {
     <main className="app">
       <header className="chrome-header">
         <div className="brand-block">
+          <div className="brand-mark">O</div>
           <div>
             <p className="brand-name">OBSTACLE</p>
             <p className="brand-version">v1.0.0</p>

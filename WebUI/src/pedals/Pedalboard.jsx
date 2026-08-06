@@ -119,9 +119,9 @@ export default function Pedalboard({
             <div className="tuner-cents-track">
               <div className="tuner-cents-center" />
               <div
-                className="tuner-cents-needle"
+                className={`tuner-cents-needle ${Math.abs(tunerCents) > 25 ? "is-very-off" : ""}`.trim()}
                 style={{
-                  left: `${tunerBypassed
+                  "--needle-x": `${tunerBypassed
                     ? 50
                     : 50 + Math.max(-50, Math.min(50, tunerCents))}%`,
                 }}
@@ -138,9 +138,9 @@ export default function Pedalboard({
               <div
                 className="tuner-level-fill"
                 style={{
-                  width: `${tunerBypassed
+                  "--level-x": tunerBypassed
                     ? 0
-                    : Math.max(0, Math.min(100, ((tunerLevel + 60) / 60) * 100))}%`,
+                    : Math.max(0, Math.min(1, (tunerLevel + 60) / 60)),
                 }}
               />
             </div>
@@ -173,7 +173,7 @@ export default function Pedalboard({
           />
         </article>
 
-        <article className={`fx-pedal-card fx-pedal-card-secondary pedal-accent-tan ${compressorBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article className={`fx-pedal-card pedal-accent-tan ${compressorBypassed ? "is-bypassed" : ""}`.trim()}>
           <p className="fx-pedal-title">Compressor</p>
           <Knob
             className="pedal-compact"
