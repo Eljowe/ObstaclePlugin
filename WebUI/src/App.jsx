@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Knob } from "./components/controls";
+import SplashScreen from "./components/SplashScreen";
 import EqPanel from "./eq/EqPanel";
 import Pedalboard from "./pedals/Pedalboard";
 
@@ -177,6 +178,20 @@ function MiniPeak({ label, level, clipping, className = "" }) {
 export default function App() {
   const initial = useMemo(() => readInitialParametersFromJuce(), []);
 
+  const [splashLeaving, setSplashLeaving] = useState(false);
+  const [splashGone, setSplashGone] = useState(false);
+
+  useEffect(() => {
+    const showMs = 1400;
+    const fadeMs = 360;
+    const leaveTimer = setTimeout(() => setSplashLeaving(true), showMs);
+    const goneTimer = setTimeout(() => setSplashGone(true), showMs + fadeMs);
+    return () => {
+      clearTimeout(leaveTimer);
+      clearTimeout(goneTimer);
+    };
+  }, []);
+
   const [activeTab, setActiveTab] = useState("fx");
   const [inGain, setInGain] = useState(initial?.inputGain ?? 0);
   const [tunerBypassed, setTunerBypassed] = useState(initial?.tunerBypassed ?? false);
@@ -338,7 +353,10 @@ export default function App() {
   }, []);
 
   return (
-    <main className="app">
+    <>
+      {!splashGone && <SplashScreen leaving={splashLeaving} />}
+
+      <main className="app">
       <header className="chrome-header">
         <div className="brand-block">
           <div className="brand-mark">O</div>
@@ -741,6 +759,7 @@ export default function App() {
         <span>Bridge active</span>
         <span>JUCE APVTS live sync</span>
       </footer>
-    </main>
+      </main>
+    </>
   );
 }

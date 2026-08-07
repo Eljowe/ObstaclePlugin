@@ -91,6 +91,50 @@
       "args": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "cmake\\install-vst3-elevated.ps1"],
       "isBackground": false,
       "problemMatcher": []
+    },
+    {
+      "label": "Build Installer (Inno Setup)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "cmake --build build --config Release --target Obstacle_Standalone Obstacle_VST3; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; & (Join-Path $env:LOCALAPPDATA 'Programs\\Inno Setup 6\\ISCC.exe') installer\\Obstacle.iss"
+      ],
+      "isBackground": false,
+      "problemMatcher": [],
+      "group": "build",
+      "dependsOn": "Build WebUI"
+    },
+    {
+      "label": "Build Release Bundle (installer + checksums)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\installer\\build-release.ps1"
+      ],
+      "isBackground": false,
+      "problemMatcher": [],
+      "group": "build"
+    },
+    {
+      "label": "Create GitHub Release (draft)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\installer\\create-release.ps1"
+      ],
+      "isBackground": false,
+      "problemMatcher": [],
+      "group": "build"
     }
   ]
 }

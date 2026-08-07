@@ -174,6 +174,40 @@ juce::var makeSnapshotVar(float inputGain,
     return juce::var(payload.release());
 }
 
+// The walk-up search below finds *any* WebUI/dist/index.html relative to the
+// host process, so it can pick up a different plugin's UI (e.g. BluePrinter's
+// dist when this plugin is loaded inside it, or when a host is launched from
+// another JUCE project's directory). Reject candidates that are not this
+// plugin's built UI.
+bool isObstacleWebUi(const juce::File& indexHtml)
+{
+    juce::FileInputStream stream(indexHtml);
+    if (!stream.openedOk())
+        return false;
+
+    auto head = stream.readString().substring(0, 4096);
+    return head.containsIgnoreCase("Obstacle Web UI");
+}
+
+// Look for this plugin's WebUI dist inside `dir`, accepting either a
+// repo-style layout (WebUI/dist next to the executable or in a parent
+// folder) or the VST3 bundle layout (Contents/Resources/WebUI/dist inside
+// the .vst3 bundle). Rejects candidates that are not this plugin's built
+// UI (see isObstacleWebUi).
+juce::File findDistIndexIn(const juce::File& dir)
+{
+    auto repoCandidate = dir.getChildFile("WebUI").getChildFile("dist").getChildFile("index.html");
+    if (repoCandidate.existsAsFile() && isObstacleWebUi(repoCandidate))
+        return repoCandidate;
+
+    auto bundleCandidate = dir.getChildFile("Contents").getChildFile("Resources")
+                               .getChildFile("WebUI").getChildFile("dist").getChildFile("index.html");
+    if (bundleCandidate.existsAsFile() && isObstacleWebUi(bundleCandidate))
+        return bundleCandidate;
+
+    return {};
+}
+
 juce::File findLocalWebUiDistIndex()
 {
     auto appFile = juce::File::getSpecialLocation(juce::File::currentApplicationFile);
@@ -181,7 +215,7 @@ juce::File findLocalWebUiDistIndex()
     auto current = appFile.getParentDirectory();
     for (int i = 0; i < 10; ++i)
     {
-        auto candidate = current.getChildFile("WebUI").getChildFile("dist").getChildFile("index.html");
+        auto candidate = findDistIndexIn(current);
         if (candidate.existsAsFile())
             return candidate;
 
@@ -194,7 +228,7 @@ juce::File findLocalWebUiDistIndex()
     auto cwd = juce::File::getCurrentWorkingDirectory();
     for (int i = 0; i < 5; ++i)
     {
-        auto candidate = cwd.getChildFile("WebUI").getChildFile("dist").getChildFile("index.html");
+        auto candidate = findDistIndexIn(cwd);
         if (candidate.existsAsFile())
             return candidate;
 
@@ -585,7 +619,7 @@ void ObstacleWebViewEditor::resized()
 
 juce::String ObstacleWebViewEditor::resolveWebUiUrl() const
 {
-    auto overrideUrl = juce::SystemStats::getEnvironmentVariable("SIMPLEEQ_WEB_UI_URL", {});
+    auto overrideUrl = juce::SystemStats::getEnvironmentVariable("Obstacle_WEB_UI_URL", {});
     if (overrideUrl.isNotEmpty())
         return overrideUrl;
 

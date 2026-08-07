@@ -2,7 +2,7 @@
 
 <JUCERPROJECT id="qiwasR" name="Obstacle" projectType="audioplug" useAppConfig="0"
               addUsingNamespaceToJuceHeader="0" jucerFormatVersion="1" cppLanguageStandard="17"
-              companyName="Matkat Music LLC" companyCopyright="2021 Matkat Music LLC"
+              companyName="Retrokielto" companyCopyright="2026 Retrokielto"
               companyWebsite="https://www.programmingformusicians.com">
   <MAINGROUP id="YPklBH" name="Obstacle">
     <GROUP id="{983B0C9E-1FAD-C17F-FEE6-FCDB0F5AFFEC}" name="Source">
