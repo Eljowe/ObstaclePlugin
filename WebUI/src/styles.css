@@ -10,8 +10,8 @@
   --orange-ring: rgba(254, 93, 38, 0.3);
   --orange-glow: rgba(254, 93, 38, 0.5);
   --ink-on-accent: #2a1608;
-  --focus: #2d1a0a;
-  --focus-knob: #2a1608;
+  --focus: var(--text-main);
+  --focus-knob: var(--ink-on-accent);
 
   --track-bg: rgba(0, 0, 0, 0.06);
   --meter-fill: #4cd884;
@@ -48,8 +48,8 @@
 
   --card-accent: var(--pedal-tan);
   --card-accent-hi: var(--pedal-tan-hi);
-  --card-accent-ink: #2a1608;
-  --card-accent-glow: rgba(254, 93, 38, 0.55);
+  --card-accent-ink: var(--ink-on-accent);
+  --card-accent-glow: rgba(226, 127, 74, 0.55);
 
   --hi-inset: rgba(255, 255, 255, 0.4);
 }
@@ -125,7 +125,7 @@ body,
   background: var(--orange);
   box-shadow:
     0 0 0 1px var(--orange-ring),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    inset 0 1px 0 var(--hi-inset);
 }
 
 .brand-name {
