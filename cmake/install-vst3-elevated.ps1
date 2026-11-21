@@ -10,7 +10,14 @@ $ErrorActionPreference = "Stop"
 # is a no-op there.
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    $elevated = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath
+    # Forward -Source so an explicit bundle path survives the relaunch (it may
+    # contain spaces, so it is quoted inside the argument list).
+    $argumentList = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $PSCommandPath)
+    if ($Source) {
+        $argumentList += @("-Source", "`"$Source`"")
+    }
+
+    $elevated = Start-Process powershell -Verb RunAs -Wait -PassThru -ArgumentList $argumentList
     exit $elevated.ExitCode
 }
 

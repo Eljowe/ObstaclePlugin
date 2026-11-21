@@ -22,7 +22,12 @@ Write-Host "Building Obstacle $version release bundle..." -ForegroundColor Cyan
 
 # 2. WebUI
 Push-Location (Join-Path $root "WebUI")
-try { npm run build } finally { Pop-Location }
+try {
+    npm run build
+    # npm is a .cmd shim, so PowerShell 5.1 does not throw on a failed build;
+    # check the exit code explicitly (Pop-Location still runs via finally).
+    if ($LASTEXITCODE -ne 0) { throw "WebUI build failed with exit code $LASTEXITCODE" }
+} finally { Pop-Location }
 
 # 3. C++ Release targets
 cmake --build (Join-Path $root "build") --config Release --target Obstacle_Standalone Obstacle_VST3

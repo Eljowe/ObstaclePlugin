@@ -122,11 +122,15 @@ if(WIN32)
     # plugin. A build-time copy (not an install rule) so the elevated install
     # script (cmake/install-vst3-elevated.ps1), which copies the bundle
     # straight from the build tree, carries the UI too.
-    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/WebUI/dist/index.html")
-        add_custom_command(TARGET Obstacle_VST3 POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_directory
-                "${CMAKE_CURRENT_SOURCE_DIR}/WebUI/dist"
-                "$<TARGET_FILE_DIR:Obstacle_VST3>/../../Contents/Resources/WebUI/dist"
-            COMMENT "Embedding WebUI into VST3 bundle")
-    endif()
+    #
+    # The copy itself lives in cmake/copy-webui.cmake and runs on every VST3
+    # link: a configure-time guard would miss a WebUI rebuilt after configure,
+    # and copy_directory alone leaves stale hashed assets behind. The script
+    # prunes the destination, and only warns when WebUI/dist is missing.
+    add_custom_command(TARGET Obstacle_VST3 POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DSRC="${CMAKE_CURRENT_SOURCE_DIR}/WebUI/dist"
+            -DDST="$<TARGET_FILE_DIR:Obstacle_VST3>/../../Contents/Resources/WebUI/dist"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy-webui.cmake"
+        COMMENT "Embedding WebUI into VST3 bundle")
 endif()

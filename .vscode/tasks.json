@@ -53,7 +53,7 @@
       "args": [
         "-NoProfile",
         "-Command",
-        "cmake --build build --config Debug --target Obstacle_Standalone; Start-Process -FilePath \".\\build\\Obstacle_artefacts\\Debug\\Standalone\\Obstacle.exe\""
+        "cmake --build build --config Debug --target Obstacle_Standalone; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Start-Process -FilePath \".\\build\\Obstacle_artefacts\\Debug\\Standalone\\Obstacle.exe\""
       ],
       "isBackground": false,
       "problemMatcher": ["$msCompile"],
@@ -67,7 +67,7 @@
       "args": [
         "-NoProfile",
         "-Command",
-        "Get-Process -Name Obstacle -ErrorAction SilentlyContinue | Stop-Process -Force; cmake --build build --config Release --target Obstacle_Standalone; Start-Process -FilePath \".\\build\\Obstacle_artefacts\\Release\\Standalone\\Obstacle.exe\""
+        "Get-Process -Name Obstacle -ErrorAction SilentlyContinue | Stop-Process -Force; cmake --build build --config Release --target Obstacle_Standalone; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }; Start-Process -FilePath \".\\build\\Obstacle_artefacts\\Release\\Standalone\\Obstacle.exe\""
       ],
       "isBackground": false,
       "problemMatcher": ["$msCompile"],
