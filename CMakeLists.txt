@@ -134,3 +134,62 @@ if(WIN32)
             -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy-webui.cmake"
         COMMENT "Embedding WebUI into VST3 bundle")
 endif()
+
+# ==============================================================================
+# Tests
+#
+# A console app that drives the processor directly, so it needs no host and
+# no DAW. `ctest --test-dir build -C Release --output-on-failure` runs it.
+# The test target compiles the plugin sources itself (a console app is not
+# the plugin target and inherits none of its public definitions), which is
+# why the JucePlugin_* macros are declared here as well.
+# ==============================================================================
+option(OBSTACLE_BUILD_TESTS "Build the Obstacle test suite" ON)
+if(OBSTACLE_BUILD_TESTS)
+    enable_testing()
+
+    juce_add_console_app(ObstacleStateTest PRODUCT_NAME "Obstacle State Test")
+    target_sources(ObstacleStateTest PRIVATE
+        Tests/StateRoundtripTest.cpp
+        Source/PluginProcessor.cpp
+        Source/PluginEditor.cpp
+        Source/WebViewEditor.cpp)
+
+    target_compile_definitions(ObstacleStateTest PRIVATE
+        JUCE_WEB_BROWSER=1
+        JUCE_USE_WIN_WEBVIEW2=1
+        JUCE_USE_CURL=0
+        JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
+        # Lets the test pump the message loop with runDispatchLoopUntil().
+        JUCE_MODAL_LOOPS_PERMITTED=1
+        JucePlugin_Name="Obstacle"
+        JucePlugin_WantsMidiInput=0
+        JucePlugin_ProducesMidiOutput=0
+        JucePlugin_IsMidiEffect=0
+        JucePlugin_IsSynth=0)
+
+    target_link_libraries(ObstacleStateTest PRIVATE
+        juce::juce_audio_basics
+        juce::juce_audio_formats
+        juce::juce_audio_processors
+        juce::juce_audio_utils
+        juce::juce_core
+        juce::juce_data_structures
+        juce::juce_dsp
+        juce::juce_events
+        juce::juce_graphics
+        juce::juce_gui_basics
+        juce::juce_gui_extra)
+
+    # WebViewEditor.cpp uses juce::WebBrowserComponent, so the test target
+    # needs the WebView2 static loader even though it never opens an editor.
+    if(WIN32)
+        list(APPEND CMAKE_MODULE_PATH "${JUCE_CMAKE_UTILS_DIR}")
+        find_package(WebView2 REQUIRED)
+        target_link_libraries(ObstacleStateTest PRIVATE juce::juce_webview2)
+    endif()
+
+    juce_generate_juce_header(ObstacleStateTest)
+
+    add_test(NAME obstacle_state_roundtrip COMMAND ObstacleStateTest)
+endif()

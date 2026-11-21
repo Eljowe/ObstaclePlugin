@@ -64,7 +64,11 @@ Debug`, `Run Obstacle Debug`, plus WebUI install/build tasks) and a
 
 ## Testing
 
-No automated CTest tests are configured. Verification is manual:
+One automated CTest test guards the APVTS state save/load round-trip
+(`Tests/StateRoundtripTest.cpp`, registered as `obstacle_state_roundtrip` on
+the `ObstacleStateTest` target, built unless `-DOBSTACLE_BUILD_TESTS=OFF`);
+run it with `ctest --test-dir build -C Release --output-on-failure`.
+Everything else is verified manually:
 
 1. Build Debug, run the Standalone, check UI controls react correctly.
 2. Load the VST3 in a DAW, verify audio passes through.
