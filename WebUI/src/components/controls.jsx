@@ -13,7 +13,7 @@ function snapToStep(value, min, step) {
   return Number(snapped.toFixed(precision));
 }
 
-export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1", className = "", accent = "orange", decimals = 1, disabled = false, title = "" }) {
+export function Knob({ label, min, max, value, onChange, defaultValue, unit = "", step = "0.1", className = "", accent = "orange", decimals = 1, disabled = false, title = "" }) {
   const safeValue = Number.isFinite(value) ? value : min;
   const normalized = (safeValue - min) / (max - min);
   const rotation = -140 + normalized * 280;
@@ -138,6 +138,7 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
         onPointerMove={continueDrag}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
+        onDoubleClick={disabled || defaultValue === undefined ? undefined : () => updateValue(defaultValue)}
         onKeyDown={handleKeyDown}
       >
         <div className="knob-face" style={{ transform: `rotate(${rotation}deg)` }}>

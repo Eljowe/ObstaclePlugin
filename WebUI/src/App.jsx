@@ -476,6 +476,7 @@ export default function App() {
                 setInGain(next);
                 emitParameterChange(PARAM_IDS.input, next);
               }}
+              defaultValue={0}
               unit="dB"
               accent="amber"
             />
@@ -489,6 +490,7 @@ export default function App() {
                 setOutGain(next);
                 emitParameterChange(PARAM_IDS.output, next);
               }}
+              defaultValue={0}
               unit="dB"
               accent="gold"
             />

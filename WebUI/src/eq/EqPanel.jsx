@@ -53,6 +53,7 @@ export default function EqPanel({
               step={0.1}
               value={eqBands[i] ?? 0}
               onChange={(next) => onEqBandChange(i, next)}
+              defaultValue={0}
               unit=""
               accent="slate"
             />

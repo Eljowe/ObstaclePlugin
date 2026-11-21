@@ -173,6 +173,7 @@ export default function Pedalboard({
             max={0}
             value={gateThreshold}
             onChange={onGateThresholdChange}
+            defaultValue={-60}
             unit="dB"
             accent="sage"
           />
@@ -198,6 +199,7 @@ export default function Pedalboard({
             max={24}
             value={compressorAmount}
             onChange={onCompressorChange}
+            defaultValue={0}
             unit="dB"
             accent="tan"
           />
@@ -210,6 +212,7 @@ export default function Pedalboard({
               step={0.01}
               value={compressorTone}
               onChange={onCompressorToneChange}
+              defaultValue={0}
               accent="tan"
             />
             <Knob
@@ -219,6 +222,7 @@ export default function Pedalboard({
               max={24}
               value={compressorLevel}
               onChange={onCompressorLevelChange}
+              defaultValue={0}
               unit="dB"
               accent="tan"
             />
@@ -247,6 +251,7 @@ export default function Pedalboard({
               step={1}
               value={octaveTranspose}
               onChange={onOctaveTransposeChange}
+              defaultValue={0}
               unit="st"
               accent="plum"
               decimals={0}
@@ -259,6 +264,7 @@ export default function Pedalboard({
               step={0.01}
               value={octaveMix}
               onChange={onOctaveMixChange}
+              defaultValue={0.5}
               accent="plum"
               decimals={2}
             />
@@ -270,6 +276,7 @@ export default function Pedalboard({
               step={0.1}
               value={octaveLevel}
               onChange={onOctaveLevelChange}
+              defaultValue={0}
               unit="dB"
               accent="plum"
             />
@@ -281,6 +288,7 @@ export default function Pedalboard({
               step={0.01}
               value={octaveTone}
               onChange={onOctaveToneChange}
+              defaultValue={0.5}
               accent="plum"
               decimals={2}
             />
@@ -316,6 +324,7 @@ export default function Pedalboard({
             step={0.01}
             value={doublerMix}
             onChange={onDoublerMixChange}
+            defaultValue={0.6}
             accent="terracotta"
           />
           <div className="knob-grid knob-grid-2">
@@ -327,6 +336,7 @@ export default function Pedalboard({
               step={0.5}
               value={doublerDelay}
               onChange={onDoublerDelayChange}
+              defaultValue={18}
               unit="ms"
               decimals={0}
               accent="terracotta"
@@ -339,6 +349,7 @@ export default function Pedalboard({
               step={1}
               value={doublerDetune}
               onChange={onDoublerDetuneChange}
+              defaultValue={6}
               unit="ct"
               decimals={0}
               accent="terracotta"
@@ -366,6 +377,7 @@ export default function Pedalboard({
             max={24}
             value={overdriveDrive}
             onChange={onOverdriveDriveChange}
+            defaultValue={0}
             unit="dB"
             accent="saddle"
           />
@@ -378,6 +390,7 @@ export default function Pedalboard({
               step={0.01}
               value={overdriveTone}
               onChange={onOverdriveToneChange}
+              defaultValue={0.5}
               accent="saddle"
             />
             <Knob
@@ -387,6 +400,7 @@ export default function Pedalboard({
               max={12}
               value={overdriveLevel}
               onChange={onOverdriveLevelChange}
+              defaultValue={0}
               unit="dB"
               accent="saddle"
             />
@@ -413,6 +427,7 @@ export default function Pedalboard({
             max={24}
             value={drive}
             onChange={onDriveChange}
+            defaultValue={0}
             unit="dB"
             accent="amber"
           />
@@ -425,6 +440,7 @@ export default function Pedalboard({
               step={0.01}
               value={driveTone}
               onChange={onDriveToneChange}
+              defaultValue={0.7}
               accent="amber"
             />
             <Knob
@@ -434,6 +450,7 @@ export default function Pedalboard({
               max={12}
               value={driveLevel}
               onChange={onDriveLevelChange}
+              defaultValue={0}
               unit="dB"
               accent="amber"
             />
@@ -460,6 +477,7 @@ export default function Pedalboard({
             max={24}
             value={fuzzDrive}
             onChange={onFuzzDriveChange}
+            defaultValue={0}
             unit="dB"
             accent="rust"
           />
@@ -472,6 +490,7 @@ export default function Pedalboard({
               step={0.01}
               value={fuzzTone}
               onChange={onFuzzToneChange}
+              defaultValue={0.7}
               accent="rust"
             />
             <Knob
@@ -481,6 +500,7 @@ export default function Pedalboard({
               max={12}
               value={fuzzLevel}
               onChange={onFuzzLevelChange}
+              defaultValue={0}
               unit="dB"
               accent="rust"
             />
@@ -509,6 +529,7 @@ export default function Pedalboard({
               step={0.5}
               value={synthFuzzDelay}
               onChange={onSynthFuzzDelayChange}
+              defaultValue={18}
               unit="ms"
               decimals={0}
               accent="brick"
@@ -521,6 +542,7 @@ export default function Pedalboard({
               step={1}
               value={synthFuzzDetune}
               onChange={onSynthFuzzDetuneChange}
+              defaultValue={6}
               unit="ct"
               decimals={0}
               accent="brick"
@@ -533,6 +555,7 @@ export default function Pedalboard({
               step={0.05}
               value={synthFuzzDrive}
               onChange={onSynthFuzzDriveChange}
+              defaultValue={1}
               accent="brick"
               decimals={2}
             />
@@ -545,6 +568,7 @@ export default function Pedalboard({
               max={12}
               value={synthFuzzLevel}
               onChange={onSynthFuzzLevelChange}
+              defaultValue={0}
               unit="dB"
               accent="brick"
             />
@@ -556,6 +580,7 @@ export default function Pedalboard({
               step={0.01}
               value={synthFuzzMix}
               onChange={onSynthFuzzMixChange}
+              defaultValue={0}
               accent="brick"
             />
           </div>
@@ -583,6 +608,7 @@ export default function Pedalboard({
               step={0.01}
               value={reverbSize}
               onChange={onReverbSizeChange}
+              defaultValue={0.5}
               accent="saffron"
             />
             <Knob
@@ -593,6 +619,7 @@ export default function Pedalboard({
               step={0.01}
               value={reverbDamping}
               onChange={onReverbDampingChange}
+              defaultValue={0.5}
               accent="saffron"
             />
             <Knob
@@ -603,6 +630,7 @@ export default function Pedalboard({
               step={0.01}
               value={reverbMix}
               onChange={onReverbMixChange}
+              defaultValue={0}
               accent="saffron"
             />
             <Knob
@@ -613,6 +641,7 @@ export default function Pedalboard({
               step={0.01}
               value={reverbWidth}
               onChange={onReverbWidthChange}
+              defaultValue={1}
               accent="saffron"
             />
           </div>
@@ -640,6 +669,7 @@ export default function Pedalboard({
               step={0.01}
               value={delayMix}
               onChange={onDelayMixChange}
+              defaultValue={0.35}
               accent="copper"
             />
             <Knob
@@ -650,6 +680,7 @@ export default function Pedalboard({
               step={0.01}
               value={delayFeedback}
               onChange={onDelayFeedbackChange}
+              defaultValue={0.35}
               accent="copper"
             />
             <div className="pedal-mode-toggle" role="radiogroup" aria-label="Delay mode">
@@ -684,6 +715,7 @@ export default function Pedalboard({
               step={1}
               value={delayTimeL}
               onChange={onDelayTimeLChange}
+              defaultValue={350}
               unit="ms"
               decimals={0}
               accent="copper"
@@ -696,6 +728,7 @@ export default function Pedalboard({
               step={1}
               value={delayTimeR}
               onChange={delayModeIsDual ? onDelayTimeRChange : undefined}
+              defaultValue={350}
               unit="ms"
               decimals={0}
               accent="copper"
@@ -727,6 +760,7 @@ export default function Pedalboard({
               step={0.05}
               value={tremoloSpeed}
               onChange={onTremoloSpeedChange}
+              defaultValue={5}
               unit="Hz"
               decimals={2}
               accent="gold"
@@ -739,6 +773,7 @@ export default function Pedalboard({
               step={0.01}
               value={tremoloDepth}
               onChange={onTremoloDepthChange}
+              defaultValue={0.5}
               accent="gold"
             />
           </div>
