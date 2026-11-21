@@ -21,6 +21,7 @@ export default function EqPanel({
         <div className="eq-analyzer-toggle">
           <BypassButton
             label="Analyzer"
+            effect="Analyzer"
             enabled={!analyzerEnabled}
             onToggle={onAnalyzerToggle}
             className="pedal-power"
@@ -32,10 +33,15 @@ export default function EqPanel({
         responseCurve={responseCurve}
         leftSpectrum={analyzerEnabled ? leftSpectrum : []}
         rightSpectrum={analyzerEnabled ? rightSpectrum : []}
+        active={analyzerEnabled}
       />
 
-      <article className={`eq-pedal pedal-accent-tan ${eqBypassed ? "is-bypassed" : ""}`.trim()}>
-        <p className="fx-pedal-title">10-Band EQ</p>
+      <article
+        className={`eq-pedal pedal-accent-slate ${eqBypassed ? "is-bypassed" : ""}`.trim()}
+        role="group"
+        aria-label="EQ pedal"
+      >
+        <p className="fx-pedal-title">10-Band EQ (dB)</p>
         <div className="eq-band-grid">
           {BAND_LABELS.map((label, i) => (
             <Knob
@@ -47,13 +53,14 @@ export default function EqPanel({
               step={0.1}
               value={eqBands[i] ?? 0}
               onChange={(next) => onEqBandChange(i, next)}
-              unit="dB"
-              accent="tan"
+              unit=""
+              accent="slate"
             />
           ))}
         </div>
         <BypassButton
           label="Power"
+          effect="EQ"
           enabled={eqBypassed}
           className="pedal-power"
           onToggle={onEqBypassToggle}

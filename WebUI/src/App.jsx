@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Knob } from "./components/controls";
 import SplashScreen from "./components/SplashScreen";
 import EqPanel from "./eq/EqPanel";
 import Pedalboard from "./pedals/Pedalboard";
+import { APP_VERSION } from "./version";
 
 const PARAM_IDS = {
   input: "Input Gain",
@@ -14,6 +15,7 @@ const PARAM_IDS = {
   compressorLevel: "Compressor Level",
   octaveTranspose: "Octave Transpose",
   octaveMix: "Octave Mix",
+  octaveLevel: "Octave Level",
   octaveTone: "Octave Tone",
   octaveMonoDetector: "Octave Mono Detector",
   octaveBypassed: "Octave Bypassed",
@@ -92,7 +94,6 @@ function readInitialParametersFromJuce() {
 
   return {
     inputGain: Number(first.inputGain ?? 0),
-    tunerReference: Number(first.tunerReference ?? 440),
     tunerBypassed: Boolean(first.tunerBypassed),
     gateThreshold: Number(first.gateThreshold ?? -60),
     gateBypassed: Boolean(first.gateBypassed),
@@ -101,15 +102,17 @@ function readInitialParametersFromJuce() {
     compressorLevel: Number(first.compressorLevel ?? 0),
     octaveTranspose: Number(first.octaveTranspose ?? 0),
     octaveMix: Number(first.octaveMix ?? 0.5),
+    octaveLevel: Number(first.octaveLevel ?? 0),
     octaveTone: Number(first.octaveTone ?? 0.5),
     octaveMonoDetector: Boolean(first.octaveMonoDetector),
-    doublerMix: Number(first.doublerMix ?? 0),
-    doublerDelay: Number(first.doublerDelay ?? 20),
-    doublerDetune: Number(first.doublerDetune ?? 5),
+    doublerMix: Number(first.doublerMix ?? 0.6),
+    doublerDelay: Number(first.doublerDelay ?? 18),
+    doublerDetune: Number(first.doublerDetune ?? 6),
     tremoloSpeed: Number(first.tremoloSpeed ?? 5),
     tremoloDepth: Number(first.tremoloDepth ?? 0.5),
     tremoloLfoIndex: Number(first.tremoloLfoIndex ?? 0),
     tremoloStereoPhase: Boolean(first.tremoloStereoPhase),
+    tremoloBypassed: Boolean(first.tremoloBypassed),
     delayMix: Number(first.delayMix ?? 0.35),
     delayTimeL: Number(first.delayTimeL ?? 350),
     delayTimeR: Number(first.delayTimeR ?? 350),
@@ -119,9 +122,9 @@ function readInitialParametersFromJuce() {
     overdriveDrive: Number(first.overdriveDrive ?? 0),
     overdriveTone: Number(first.overdriveTone ?? 0.5),
     overdriveLevel: Number(first.overdriveLevel ?? 0),
-    drive: Number(first.drive ?? 6),
-    driveTone: Number(first.driveTone ?? 0.7),
-    driveLevel: Number(first.driveLevel ?? 0),
+    drive: Number(first.drive ?? 0),
+    driveTone: Number(first.distortionTone ?? 0.7),
+    driveLevel: Number(first.distortionLevel ?? 0),
     fuzzDrive: Number(first.fuzzDrive ?? 0),
     fuzzTone: Number(first.fuzzTone ?? 0.7),
     fuzzLevel: Number(first.fuzzLevel ?? 0),
@@ -138,7 +141,6 @@ function readInitialParametersFromJuce() {
     reverbDamping: Number(first.reverbDamping ?? 0.5),
     reverbMix: Number(first.reverbMix ?? 0),
     reverbWidth: Number(first.reverbWidth ?? 1),
-    highCutBypassed: Boolean(first.highCutBypassed),
     overdriveBypassed: Boolean(first.overdriveBypassed),
     driveBypassed: Boolean(first.driveBypassed),
     fuzzBypassed: Boolean(first.fuzzBypassed),
@@ -154,19 +156,20 @@ function readInitialParametersFromJuce() {
     analyzerEnabled: Boolean(first.analyzerEnabled),
     inputPeak: Number(first.inputPeak ?? 0),
     outputPeak: Number(first.outputPeak ?? 0),
-    inputClipping: Boolean(first.inputClipping),
-    outputClipping: Boolean(first.outputClipping),
   };
 }
 
 function MiniPeak({ label, level, clipping, className = "" }) {
-  const height = `${Math.min(100, Math.max(0, level * 100))}%`;
+  const linear = Math.max(0, Number(level) || 0);
+  const db = linear > 0 ? 20 * Math.log10(linear) : -48;
+  const clampedDb = Math.min(0, Math.max(-48, db));
+  const height = `${Math.round(((clampedDb + 48) / 48) * 100)}%`;
 
   return (
     <div className={`mini-peak ${className}`.trim()}>
       <div className="mini-peak-head">
         <span>{label}</span>
-        <span className={`mini-clip ${clipping ? "active" : ""}`}>{clipping ? "CLIP" : "OK"}</span>
+        <span className={`mini-clip ${clipping ? "active" : ""}`}>{clipping ? "CLIP" : "•"}</span>
       </div>
       <div className="mini-peak-track">
         <div className="mini-peak-fill" style={{ height }} />
@@ -180,15 +183,28 @@ export default function App() {
 
   const [splashLeaving, setSplashLeaving] = useState(false);
   const [splashGone, setSplashGone] = useState(false);
+  const splashDismissed = useRef(false);
+  const splashMinElapsed = useRef(false);
+  const firstPayloadReceived = useRef(false);
 
+  const dismissSplash = () => {
+    if (splashDismissed.current) return;
+    splashDismissed.current = true;
+    setSplashLeaving(true);
+    window.setTimeout(() => setSplashGone(true), 360);
+  };
+
+  // Keep the splash until the first backend payload arrives (with a short
+  // minimum so it does not flash), and fall back for preview mode.
   useEffect(() => {
-    const showMs = 1400;
-    const fadeMs = 360;
-    const leaveTimer = setTimeout(() => setSplashLeaving(true), showMs);
-    const goneTimer = setTimeout(() => setSplashGone(true), showMs + fadeMs);
+    const minTimer = window.setTimeout(() => {
+      splashMinElapsed.current = true;
+      if (firstPayloadReceived.current) dismissSplash();
+    }, 400);
+    const fallbackTimer = window.setTimeout(dismissSplash, 1800);
     return () => {
-      clearTimeout(leaveTimer);
-      clearTimeout(goneTimer);
+      window.clearTimeout(minTimer);
+      window.clearTimeout(fallbackTimer);
     };
   }, []);
 
@@ -203,7 +219,7 @@ export default function App() {
   const [tunerLevel, setTunerLevel] = useState(-60);
 
   const tunerNote = tunerNoteIndex >= 0 ? noteIndexToName(tunerNoteIndex) : "";
-  const [drive, setDrive] = useState(initial?.drive ?? 6);
+  const [drive, setDrive] = useState(initial?.drive ?? 0);
   const [driveTone, setDriveTone] = useState(initial?.driveTone ?? 0.7);
   const [driveLevel, setDriveLevel] = useState(initial?.driveLevel ?? 0);
   const [fuzzDrive, setFuzzDrive] = useState(initial?.fuzzDrive ?? 0);
@@ -219,11 +235,12 @@ export default function App() {
   const [compressorLevel, setCompressorLevel] = useState(initial?.compressorLevel ?? 0);
   const [octaveTranspose, setOctaveTranspose] = useState(initial?.octaveTranspose ?? 0);
   const [octaveMix, setOctaveMix] = useState(initial?.octaveMix ?? 0.5);
+  const [octaveLevel, setOctaveLevel] = useState(initial?.octaveLevel ?? 0);
   const [octaveTone, setOctaveTone] = useState(initial?.octaveTone ?? 0.5);
   const [octaveMonoDetector, setOctaveMonoDetector] = useState(initial?.octaveMonoDetector ?? true);
-  const [doublerMix, setDoublerMix] = useState(initial?.doublerMix ?? 0);
-  const [doublerDelay, setDoublerDelay] = useState(initial?.doublerDelay ?? 20);
-  const [doublerDetune, setDoublerDetune] = useState(initial?.doublerDetune ?? 5);
+  const [doublerMix, setDoublerMix] = useState(initial?.doublerMix ?? 0.6);
+  const [doublerDelay, setDoublerDelay] = useState(initial?.doublerDelay ?? 18);
+  const [doublerDetune, setDoublerDetune] = useState(initial?.doublerDetune ?? 6);
   const [tremoloSpeed, setTremoloSpeed] = useState(initial?.tremoloSpeed ?? 5);
   const [tremoloDepth, setTremoloDepth] = useState(initial?.tremoloDepth ?? 0.5);
   const [tremoloLfoIndex, setTremoloLfoIndex] = useState(initial?.tremoloLfoIndex ?? 0);
@@ -261,8 +278,23 @@ export default function App() {
   const [analyzerEnabled, setAnalyzerEnabled] = useState(initial?.analyzerEnabled ?? true);
   const [inputPeak, setInputPeak] = useState(initial?.inputPeak ?? 0);
   const [outputPeak, setOutputPeak] = useState(initial?.outputPeak ?? 0);
-  const [inputClipping, setInputClipping] = useState(initial?.inputClipping ?? false);
-  const [outputClipping, setOutputClipping] = useState(initial?.outputClipping ?? false);
+  const [inputClipLatched, setInputClipLatched] = useState(false);
+  const [outputClipLatched, setOutputClipLatched] = useState(false);
+  const lastInputClipAt = useRef(0);
+  const lastOutputClipAt = useRef(0);
+
+  // A clip event latches the badge for a short window so a single overload is visible.
+  useEffect(() => {
+    const CLIP_LATCH_MS = 1500;
+
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      setInputClipLatched(now - lastInputClipAt.current < CLIP_LATCH_MS);
+      setOutputClipLatched(now - lastOutputClipAt.current < CLIP_LATCH_MS);
+    }, 100);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     const backend = getBackend();
@@ -270,6 +302,10 @@ export default function App() {
 
     const token = backend.addEventListener(BACKEND_EVENT, (payload) => {
       if (typeof payload !== "object" || payload == null) return;
+      if (!firstPayloadReceived.current) {
+        firstPayloadReceived.current = true;
+        if (splashMinElapsed.current) dismissSplash();
+      }
       if (payload.inputGain !== undefined) setInGain(Number(payload.inputGain));
       if (payload.tunerBypassed !== undefined) setTunerBypassed(Boolean(payload.tunerBypassed));
       if (payload.gateThreshold !== undefined) setGateThreshold(Number(payload.gateThreshold));
@@ -285,6 +321,7 @@ export default function App() {
       if (payload.compressorLevel !== undefined) setCompressorLevel(Number(payload.compressorLevel));
       if (payload.octaveTranspose !== undefined) setOctaveTranspose(Number(payload.octaveTranspose));
       if (payload.octaveMix !== undefined) setOctaveMix(Number(payload.octaveMix));
+      if (payload.octaveLevel !== undefined) setOctaveLevel(Number(payload.octaveLevel));
       if (payload.octaveTone !== undefined) setOctaveTone(Number(payload.octaveTone));
       if (payload.octaveMonoDetector !== undefined) setOctaveMonoDetector(Boolean(payload.octaveMonoDetector));
       if (payload.doublerMix !== undefined) setDoublerMix(Number(payload.doublerMix));
@@ -304,8 +341,8 @@ export default function App() {
       if (payload.overdriveTone !== undefined) setOverdriveTone(Number(payload.overdriveTone));
       if (payload.overdriveLevel !== undefined) setOverdriveLevel(Number(payload.overdriveLevel));
       if (payload.drive !== undefined) setDrive(Number(payload.drive));
-      if (payload.driveTone !== undefined) setDriveTone(Number(payload.driveTone));
-      if (payload.driveLevel !== undefined) setDriveLevel(Number(payload.driveLevel));
+      if (payload.distortionTone !== undefined) setDriveTone(Number(payload.distortionTone));
+      if (payload.distortionLevel !== undefined) setDriveLevel(Number(payload.distortionLevel));
       if (payload.fuzzDrive !== undefined) setFuzzDrive(Number(payload.fuzzDrive));
       if (payload.fuzzTone !== undefined) setFuzzTone(Number(payload.fuzzTone));
       if (payload.fuzzLevel !== undefined) setFuzzLevel(Number(payload.fuzzLevel));
@@ -315,7 +352,6 @@ export default function App() {
       if (payload.synthFuzzDrive !== undefined) setSynthFuzzDrive(Number(payload.synthFuzzDrive));
       if (payload.synthFuzzLevel !== undefined) setSynthFuzzLevel(Number(payload.synthFuzzLevel));
       if (payload.outputGain !== undefined) setOutGain(Number(payload.outputGain));
-      if (payload.monoInput !== undefined) setMonoInput(Boolean(payload.monoInput));
       if (payload.mute !== undefined) setMute(Boolean(payload.mute));
       if (Array.isArray(payload.eqBands)) {
         setEqBands(payload.eqBands.map((v) => Number(v)));
@@ -341,8 +377,8 @@ export default function App() {
       if (Array.isArray(payload.rightSpectrum)) setRightSpectrum(payload.rightSpectrum.map(Number));
       if (payload.inputPeak !== undefined) setInputPeak(Number(payload.inputPeak));
       if (payload.outputPeak !== undefined) setOutputPeak(Number(payload.outputPeak));
-      if (payload.inputClipping !== undefined) setInputClipping(Boolean(payload.inputClipping));
-      if (payload.outputClipping !== undefined) setOutputClipping(Boolean(payload.outputClipping));
+      if (payload.inputClipping) lastInputClipAt.current = Date.now();
+      if (payload.outputClipping) lastOutputClipAt.current = Date.now();
     });
 
     return () => {
@@ -354,15 +390,15 @@ export default function App() {
 
   return (
     <>
-      {!splashGone && <SplashScreen leaving={splashLeaving} />}
+      {!splashGone && <SplashScreen leaving={splashLeaving} onSkip={dismissSplash} />}
 
       <main className="app">
       <header className="chrome-header">
         <div className="brand-block">
           <div className="brand-mark">O</div>
           <div>
-            <p className="brand-name">OBSTACLE</p>
-            <p className="brand-version">v1.0.0</p>
+            <h1 className="brand-name">OBSTACLE</h1>
+            <p className="brand-version">v{APP_VERSION}</p>
           </div>
         </div>
 
@@ -385,11 +421,14 @@ export default function App() {
 
         <div className="io-dock">
           <div className="io-row">
-            <div className="io-mode-toggle">
+            <div className="io-mode-toggle" role="radiogroup" aria-label="Input mode">
               <button
                 type="button"
                 className={`io-mode-segment ${monoInput ? "active" : ""}`.trim()}
+                role="radio"
+                aria-checked={monoInput}
                 onClick={() => {
+                  setMonoInput(true);
                   if (!monoInput) emitParameterChange(PARAM_IDS.monoInput, 1);
                 }}
                 aria-label="Mono input"
@@ -400,7 +439,10 @@ export default function App() {
               <button
                 type="button"
                 className={`io-mode-segment ${!monoInput ? "active" : ""}`.trim()}
+                role="radio"
+                aria-checked={!monoInput}
                 onClick={() => {
+                  setMonoInput(false);
                   if (monoInput) emitParameterChange(PARAM_IDS.monoInput, 0);
                 }}
                 aria-label="Stereo input"
@@ -418,11 +460,12 @@ export default function App() {
                 emitParameterChange(PARAM_IDS.mute, next ? 1 : 0);
               }}
               aria-label={mute ? "Unmute" : "Mute"}
+              aria-pressed={mute}
               title={mute ? "Muted" : "Mute"}
             >
               M
             </button>
-            <MiniPeak className="io-meter" label="Input" level={inputPeak} clipping={inputClipping} />
+            <MiniPeak className="io-meter" label="IN" level={inputPeak} clipping={inputClipLatched} />
             <Knob
               className="io-compact"
               label="Input"
@@ -449,7 +492,7 @@ export default function App() {
               unit="dB"
               accent="gold"
             />
-            <MiniPeak className="io-meter" label="Output" level={outputPeak} clipping={outputClipping} />
+            <MiniPeak className="io-meter" label="OUT" level={outputPeak} clipping={outputClipLatched} />
           </div>
         </div>
       </header>
@@ -487,6 +530,7 @@ export default function App() {
           compressorLevel={compressorLevel}
           octaveTranspose={octaveTranspose}
           octaveMix={octaveMix}
+          octaveLevel={octaveLevel}
           octaveTone={octaveTone}
           octaveMonoDetector={octaveMonoDetector}
           octaveBypassed={octaveBypassed}
@@ -625,6 +669,10 @@ export default function App() {
             setOctaveMix(next);
             emitParameterChange(PARAM_IDS.octaveMix, next);
           }}
+          onOctaveLevelChange={(next) => {
+            setOctaveLevel(next);
+            emitParameterChange(PARAM_IDS.octaveLevel, next);
+          }}
           onOctaveToneChange={(next) => {
             setOctaveTone(next);
             emitParameterChange(PARAM_IDS.octaveTone, next);
@@ -756,8 +804,7 @@ export default function App() {
       )}
 
       <footer className="status-bar">
-        <span>Bridge active</span>
-        <span>JUCE APVTS live sync</span>
+        <span>{getBackend()?.emitEvent ? "Bridge active" : "Preview mode (no bridge)"}</span>
       </footer>
       </main>
     </>

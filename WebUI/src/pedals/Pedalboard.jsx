@@ -32,6 +32,7 @@ export default function Pedalboard({
   compressorLevel,
   octaveTranspose,
   octaveMix,
+  octaveLevel,
   octaveTone,
   octaveMonoDetector,
   octaveBypassed,
@@ -82,6 +83,7 @@ export default function Pedalboard({
   onSynthFuzzToggle,
   onOctaveTransposeChange,
   onOctaveMixChange,
+  onOctaveLevelChange,
   onOctaveToneChange,
   onOctaveMonoDetectorToggle,
   onOctaveToggle,
@@ -110,10 +112,14 @@ export default function Pedalboard({
     <section className="panel-shell fx-shell">
       <p className="section-title">Pedalboard</p>
       <div className="fx-pedal-grid">
-        <article className={`fx-pedal-card pedal-accent-olive ${tunerBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-olive ${tunerBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Tuner pedal"
+        >
           <p className="fx-pedal-title">Tuner</p>
           <div className="tuner-display">
-            <div className={`tuner-note ${tunerBypassed || !tunerNote ? "is-muted" : ""}`.trim()}>
+            <div className={`tuner-note ${!tunerNote ? "is-muted" : ""}`.trim()}>
               {tunerBypassed ? "—" : (tunerNote || "—")}
             </div>
             <div className="tuner-cents-track">
@@ -147,13 +153,18 @@ export default function Pedalboard({
           </div>
           <BypassButton
             label="Power"
+            effect="Tuner"
             enabled={tunerBypassed}
             className="pedal-power"
             onToggle={onTunerToggle}
           />
         </article>
 
-        <article className={`fx-pedal-card pedal-accent-olive ${gateBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-sage ${gateBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Gate pedal"
+        >
           <p className="fx-pedal-title">Gate</p>
           <Knob
             className="pedal-compact"
@@ -163,17 +174,22 @@ export default function Pedalboard({
             value={gateThreshold}
             onChange={onGateThresholdChange}
             unit="dB"
-            accent="olive"
+            accent="sage"
           />
           <BypassButton
             label="Power"
+            effect="Gate"
             enabled={gateBypassed}
             className="pedal-power"
             onToggle={onGateToggle}
           />
         </article>
 
-        <article className={`fx-pedal-card pedal-accent-tan ${compressorBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-tan ${compressorBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Compressor pedal"
+        >
           <p className="fx-pedal-title">Compressor</p>
           <Knob
             className="pedal-compact"
@@ -209,27 +225,32 @@ export default function Pedalboard({
           </div>
           <BypassButton
             label="Power"
+            effect="Compressor"
             enabled={compressorBypassed}
             className="pedal-power"
             onToggle={onCompressorToggle}
           />
         </article>
 
-        <article className={`fx-pedal-card pedal-accent-plum ${octaveBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-plum ${octaveBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Octave pedal"
+        >
           <p className="fx-pedal-title">Octave</p>
-          <Knob
-            className="pedal-compact"
-            label="Transpose"
-            min={-12}
-            max={12}
-            step={1}
-            value={octaveTranspose}
-            onChange={onOctaveTransposeChange}
-            unit="st"
-            accent="plum"
-            decimals={0}
-          />
           <div className="knob-grid knob-grid-2">
+            <Knob
+              className="pedal-compact"
+              label="Transpose"
+              min={-12}
+              max={12}
+              step={1}
+              value={octaveTranspose}
+              onChange={onOctaveTransposeChange}
+              unit="st"
+              accent="plum"
+              decimals={0}
+            />
             <Knob
               className="pedal-compact"
               label="Mix"
@@ -243,6 +264,17 @@ export default function Pedalboard({
             />
             <Knob
               className="pedal-compact"
+              label="Level"
+              min={-24}
+              max={12}
+              step={0.1}
+              value={octaveLevel}
+              onChange={onOctaveLevelChange}
+              unit="dB"
+              accent="plum"
+            />
+            <Knob
+              className="pedal-compact"
               label="Tone"
               min={0}
               max={1}
@@ -253,14 +285,16 @@ export default function Pedalboard({
               decimals={2}
             />
           </div>
-          <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", justifyContent: "center" }}>
+          <div className="pedal-aux-row">
             <BypassButton
               label="Mono Det"
-              enabled={octaveMonoDetector}
+              ariaLabel="Octave mono detector"
+              enabled={!octaveMonoDetector}
               onToggle={onOctaveMonoDetectorToggle}
             />
             <BypassButton
               label="Power"
+              effect="Octave"
               enabled={octaveBypassed}
               className="pedal-power"
               onToggle={onOctaveToggle}
@@ -268,7 +302,11 @@ export default function Pedalboard({
           </div>
         </article>
 
-        <article className={`fx-pedal-card pedal-accent-terracotta ${doublerBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-terracotta ${doublerBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Doubler pedal"
+        >
           <p className="fx-pedal-title">Doubler</p>
           <Knob
             className="pedal-compact"
@@ -308,13 +346,18 @@ export default function Pedalboard({
           </div>
           <BypassButton
             label="Power"
+            effect="Doubler"
             enabled={doublerBypassed}
             className="pedal-power"
             onToggle={onDoublerToggle}
           />
         </article>
 
-        <article className={`fx-pedal-card pedal-accent-saddle ${overdriveBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-saddle ${overdriveBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Overdrive pedal"
+        >
           <p className="fx-pedal-title">Overdrive</p>
           <Knob
             className="pedal-compact"
@@ -350,13 +393,18 @@ export default function Pedalboard({
           </div>
           <BypassButton
             label="Power"
+            effect="Overdrive"
             enabled={overdriveBypassed}
             className="pedal-power"
             onToggle={onOverdriveToggle}
           />
         </article>
 
-        <article className={`fx-pedal-card pedal-accent-amber ${driveBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-amber ${driveBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Drive pedal"
+        >
           <p className="fx-pedal-title">Drive</p>
           <Knob
             className="pedal-compact"
@@ -390,10 +438,20 @@ export default function Pedalboard({
               accent="amber"
             />
           </div>
-          <BypassButton label="Power" enabled={driveBypassed} className="pedal-power" onToggle={onDriveToggle} />
+          <BypassButton
+            label="Power"
+            effect="Drive"
+            enabled={driveBypassed}
+            className="pedal-power"
+            onToggle={onDriveToggle}
+          />
         </article>
 
-        <article className={`fx-pedal-card pedal-accent-rust ${fuzzBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-rust ${fuzzBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Fuzz pedal"
+        >
           <p className="fx-pedal-title">Fuzz</p>
           <Knob
             className="pedal-compact"
@@ -429,13 +487,18 @@ export default function Pedalboard({
           </div>
           <BypassButton
             label="Power"
+            effect="Fuzz"
             enabled={fuzzBypassed}
             className="pedal-power"
             onToggle={onFuzzToggle}
           />
         </article>
 
-        <article className={`fx-pedal-card fx-pedal-card-wide pedal-accent-brick ${synthFuzzBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card fx-pedal-card-wide pedal-accent-brick ${synthFuzzBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Synth Fuzz pedal"
+        >
           <p className="fx-pedal-title">Synth Fuzz</p>
           <div className="knob-grid knob-grid-3">
             <Knob
@@ -498,13 +561,18 @@ export default function Pedalboard({
           </div>
           <BypassButton
             label="Power"
+            effect="Synth Fuzz"
             enabled={synthFuzzBypassed}
             className="pedal-power"
             onToggle={onSynthFuzzToggle}
           />
         </article>
 
-        <article className={`fx-pedal-card pedal-accent-saffron ${reverbBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-saffron ${reverbBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Reverb pedal"
+        >
           <p className="fx-pedal-title">Reverb</p>
           <div className="knob-grid knob-grid-2">
             <Knob
@@ -550,6 +618,7 @@ export default function Pedalboard({
           </div>
           <BypassButton
             label="Power"
+            effect="Reverb"
             enabled={reverbBypassed}
             className="pedal-power"
             onToggle={onReverbToggle}
@@ -558,6 +627,8 @@ export default function Pedalboard({
 
         <article
           className={`fx-pedal-card fx-pedal-card-wide pedal-accent-copper ${delayBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Delay pedal"
         >
           <p className="fx-pedal-title">Delay</p>
           <div className="knob-grid knob-grid-3">
@@ -581,25 +652,27 @@ export default function Pedalboard({
               onChange={onDelayFeedbackChange}
               accent="copper"
             />
-            <div className="pedal-mode-toggle">
-              <div className="pedal-mode-option">
-                <button
-                  type="button"
-                  className={`pedal-mode-circle ${!delayModeIsDual ? "active" : ""}`.trim()}
-                  onClick={() => { if (delayModeIsDual) onDelayModeToggle(); }}
-                  aria-label="Single mode"
-                />
+            <div className="pedal-mode-toggle" role="radiogroup" aria-label="Delay mode">
+              <button
+                type="button"
+                className={`pedal-mode-option ${!delayModeIsDual ? "active" : ""}`.trim()}
+                role="radio"
+                aria-checked={!delayModeIsDual}
+                onClick={() => { if (delayModeIsDual) onDelayModeToggle(); }}
+              >
+                <span className="pedal-mode-circle" aria-hidden="true" />
                 <span className="pedal-mode-label">Single</span>
-              </div>
-              <div className="pedal-mode-option">
-                <button
-                  type="button"
-                  className={`pedal-mode-circle ${delayModeIsDual ? "active" : ""}`.trim()}
-                  onClick={() => { if (!delayModeIsDual) onDelayModeToggle(); }}
-                  aria-label="Dual mode"
-                />
+              </button>
+              <button
+                type="button"
+                className={`pedal-mode-option ${delayModeIsDual ? "active" : ""}`.trim()}
+                role="radio"
+                aria-checked={delayModeIsDual}
+                onClick={() => { if (!delayModeIsDual) onDelayModeToggle(); }}
+              >
+                <span className="pedal-mode-circle" aria-hidden="true" />
                 <span className="pedal-mode-label">Dual</span>
-              </div>
+              </button>
             </div>
           </div>
           <div className="knob-grid knob-grid-2">
@@ -627,17 +700,23 @@ export default function Pedalboard({
               decimals={0}
               accent="copper"
               disabled={!delayModeIsDual}
+              title="Dual mode only"
             />
           </div>
           <BypassButton
             label="Power"
+            effect="Delay"
             enabled={delayBypassed}
             className="pedal-power"
             onToggle={onDelayToggle}
-           />
-         </article>
+          />
+        </article>
 
-        <article className={`fx-pedal-card pedal-accent-gold ${tremoloBypassed ? "is-bypassed" : ""}`.trim()}>
+        <article
+          className={`fx-pedal-card pedal-accent-gold ${tremoloBypassed ? "is-bypassed" : ""}`.trim()}
+          role="group"
+          aria-label="Tremolo pedal"
+        >
           <p className="fx-pedal-title">Tremolo</p>
           <div className="knob-grid knob-grid-2">
             <Knob
@@ -663,49 +742,55 @@ export default function Pedalboard({
               accent="gold"
             />
           </div>
-          <div className="pedal-mode-toggle">
-            <div className="pedal-mode-option">
-              <button
-                type="button"
-                className={`pedal-mode-circle ${tremoloLfoIndex === 0 ? "active" : ""}`.trim()}
-                onClick={() => { if (tremoloLfoIndex !== 0) onTremoloLfoChange(0); }}
-                aria-label="Sine"
-              />
+          <div className="pedal-mode-toggle pedal-mode-toggle-4" role="radiogroup" aria-label="Tremolo LFO">
+            <button
+              type="button"
+              className={`pedal-mode-option ${tremoloLfoIndex === 0 ? "active" : ""}`.trim()}
+              role="radio"
+              aria-checked={tremoloLfoIndex === 0}
+              onClick={() => { if (tremoloLfoIndex !== 0) onTremoloLfoChange(0); }}
+            >
+              <span className="pedal-mode-circle" aria-hidden="true" />
               <span className="pedal-mode-label">Sine</span>
-            </div>
-            <div className="pedal-mode-option">
-              <button
-                type="button"
-                className={`pedal-mode-circle ${tremoloLfoIndex === 1 ? "active" : ""}`.trim()}
-                onClick={() => { if (tremoloLfoIndex !== 1) onTremoloLfoChange(1); }}
-                aria-label="Triangle"
-              />
+            </button>
+            <button
+              type="button"
+              className={`pedal-mode-option ${tremoloLfoIndex === 1 ? "active" : ""}`.trim()}
+              role="radio"
+              aria-checked={tremoloLfoIndex === 1}
+              aria-label="Triangle"
+              onClick={() => { if (tremoloLfoIndex !== 1) onTremoloLfoChange(1); }}
+            >
+              <span className="pedal-mode-circle" aria-hidden="true" />
               <span className="pedal-mode-label">Tri</span>
-            </div>
-            <div className="pedal-mode-option">
-              <button
-                type="button"
-                className={`pedal-mode-circle ${tremoloLfoIndex === 2 ? "active" : ""}`.trim()}
-                onClick={() => { if (tremoloLfoIndex !== 2) onTremoloLfoChange(2); }}
-                aria-label="Square"
-              />
-                <span className="pedal-mode-label">Square</span>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", justifyContent: "center" }}>
-              <BypassButton
-                label="Stereo"
-                enabled={tremoloStereoPhase}
-                onToggle={onTremoloStereoPhaseToggle}
-              />
-              <BypassButton
-                label="Power"
-                enabled={tremoloBypassed}
-                className="pedal-power"
-                onToggle={onTremoloToggle}
-              />
-            </div>
-          </article>
+            </button>
+            <button
+              type="button"
+              className={`pedal-mode-option ${tremoloLfoIndex === 2 ? "active" : ""}`.trim()}
+              role="radio"
+              aria-checked={tremoloLfoIndex === 2}
+              onClick={() => { if (tremoloLfoIndex !== 2) onTremoloLfoChange(2); }}
+            >
+              <span className="pedal-mode-circle" aria-hidden="true" />
+              <span className="pedal-mode-label">Square</span>
+            </button>
+          </div>
+          <div className="pedal-aux-row">
+            <BypassButton
+              label="Stereo"
+              ariaLabel="Tremolo stereo phase"
+              enabled={!tremoloStereoPhase}
+              onToggle={onTremoloStereoPhaseToggle}
+            />
+            <BypassButton
+              label="Power"
+              effect="Tremolo"
+              enabled={tremoloBypassed}
+              className="pedal-power"
+              onToggle={onTremoloToggle}
+            />
+          </div>
+        </article>
       </div>
     </section>
   );

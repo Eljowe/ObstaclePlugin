@@ -1,3 +1,5 @@
+import { APP_VERSION } from "../version";
+
 const PEDAL_ACCENTS = [
   "olive",
   "tan",
@@ -10,22 +12,24 @@ const PEDAL_ACCENTS = [
   "saffron",
   "copper",
   "gold",
+  "sage",
+  "slate",
 ];
 
 const LED_DELAY_STEP_MS = 95;
 const LED_POP_MS = 600;
 
-export default function SplashScreen({ leaving = false }) {
+export default function SplashScreen({ leaving = false, onSkip }) {
   return (
-    <div className={`splash-screen ${leaving ? "is-leaving" : ""}`.trim()}>
+    <div className={`splash-screen ${leaving ? "is-leaving" : ""}`.trim()} onClick={onSkip} title="Click to skip">
       <header className="splash-top">
         <div className="brand-mark">O</div>
-        <span className="splash-version">v1.0.0</span>
+        <span className="splash-version">v{APP_VERSION}</span>
       </header>
 
       <div className="splash-center">
         <div className="splash-mark">O</div>
-        <h1 className="splash-wordmark">OBSTACLE</h1>
+        <p className="splash-wordmark">OBSTACLE</p>
         <p className="splash-tagline">Multi-effect guitar pedalboard</p>
         <div className="splash-led-row" aria-hidden="true">
           {PEDAL_ACCENTS.map((accent, index) => (
@@ -36,7 +40,9 @@ export default function SplashScreen({ leaving = false }) {
             />
           ))}
         </div>
-        <p className="splash-loading">Loading board</p>
+        <p className="splash-loading" role="status" aria-live="polite">
+          Loading board
+        </p>
       </div>
 
       <footer className="splash-bottom">

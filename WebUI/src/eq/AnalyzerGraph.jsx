@@ -39,7 +39,7 @@ function buildYAxisLabels(minValue, maxValue, gridLines) {
   });
 }
 
-export default function AnalyzerGraph({ responseCurve, leftSpectrum, rightSpectrum }) {
+export default function AnalyzerGraph({ responseCurve, leftSpectrum, rightSpectrum, active = true }) {
   const responsePath = useMemo(() => buildPath(responseCurve, -24, 24), [responseCurve]);
   const leftSpectrumPath = useMemo(() => buildPath(leftSpectrum, -48, 0), [leftSpectrum]);
   const rightSpectrumPath = useMemo(() => buildPath(rightSpectrum, -48, 0), [rightSpectrum]);
@@ -57,21 +57,23 @@ export default function AnalyzerGraph({ responseCurve, leftSpectrum, rightSpectr
   }, []);
 
   const gridLines = [10, 30, 50, 70, 90];
-  const spectrumYLabels = useMemo(() => buildYAxisLabels(-48, 0, gridLines), []);
-  const responseYLabels = useMemo(() => buildYAxisLabels(-24, 24, gridLines), []);
+  const yLabelPositions = [0, ...gridLines, 100];
+  const spectrumYLabels = useMemo(() => buildYAxisLabels(-48, 0, yLabelPositions), []);
+  const responseYLabels = useMemo(() => buildYAxisLabels(-24, 24, yLabelPositions), []);
 
   return (
     <div className="analyzer-panel">
       <div className="analyzer-graph-wrap">
         <div className="analyzer-y-axis analyzer-y-axis-left" aria-label="Spectrum level in dB">
           {spectrumYLabels.map(({ y, label }) => (
-            <span key={label} className="analyzer-y-label" style={{ top: `${y}%` }}>
+            <span key={label} className={"analyzer-y-label" + (y === 0 ? " is-top" : y === 100 ? " is-bottom" : "")} style={{ top: `${y}%` }}>
               {label}
             </span>
           ))}
         </div>
 
-        <svg className="analyzer-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="EQ FFT Analyzer">
+        <svg className="analyzer-svg" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="EQ FFT analyzer">
+          <title>EQ FFT analyzer</title>
           <g className="analyzer-grid">
             {gridLines.map((y) => (
               <line key={y} x1="0" y1={y} x2="100" y2={y} />
@@ -84,7 +86,7 @@ export default function AnalyzerGraph({ responseCurve, leftSpectrum, rightSpectr
 
         <div className="analyzer-y-axis analyzer-y-axis-right" aria-label="EQ response in dB">
           {responseYLabels.map(({ y, label }) => (
-            <span key={label} className="analyzer-y-label" style={{ top: `${y}%` }}>
+            <span key={label} className={"analyzer-y-label" + (y === 0 ? " is-top" : y === 100 ? " is-bottom" : "")} style={{ top: `${y}%` }}>
               {label}
             </span>
           ))}
@@ -102,9 +104,9 @@ export default function AnalyzerGraph({ responseCurve, leftSpectrum, rightSpectr
           );
         })}
       </div>
-      <div className="analyzer-legend">
-        <span className="legend-item legend-left">L FFT</span>
-        <span className="legend-item legend-right">R FFT</span>
+      <div className={"analyzer-legend" + (active ? "" : " is-off")}>
+        <span className="legend-item legend-left">{active ? "L FFT" : "L FFT (off)"}</span>
+        <span className="legend-item legend-right">{active ? "R FFT" : "R FFT (off)"}</span>
         <span className="legend-item legend-response">EQ Curve</span>
       </div>
     </div>

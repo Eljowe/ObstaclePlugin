@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -13,10 +13,13 @@ function snapToStep(value, min, step) {
   return Number(snapped.toFixed(precision));
 }
 
-export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1", className = "", accent = "orange", decimals = 1, disabled = false }) {
-  const normalized = (value - min) / (max - min);
+export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1", className = "", accent = "orange", decimals = 1, disabled = false, title = "" }) {
+  const safeValue = Number.isFinite(value) ? value : min;
+  const normalized = (safeValue - min) / (max - min);
   const rotation = -140 + normalized * 280;
   const dragState = useRef(null);
+  const shellRef = useRef(null);
+  const wheelHandlerRef = useRef(null);
   const range = max - min;
 
   const updateValue = (next) => {
@@ -47,7 +50,9 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
 
   const endDrag = (event) => {
     if (!dragState.current || dragState.current.pointerId !== event.pointerId) return;
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     dragState.current = null;
   };
 
@@ -56,13 +61,32 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
     event.preventDefault();
     const direction = event.deltaY < 0 ? 1 : -1;
     const fineStep = Number(step) || range / 100;
-    updateValue(value + direction * fineStep);
+    updateValue(safeValue + direction * fineStep);
   };
+
+  // Keep the latest props in the wheel listener without re-attaching it on every change.
+  useEffect(() => {
+    wheelHandlerRef.current = handleWheel;
+  });
+
+  // React registers wheel listeners passively, so attach a native non-passive one
+  // on the shell to be able to stop the pedalboard from scrolling while stepping.
+  useEffect(() => {
+    const el = shellRef.current;
+    if (!el) return undefined;
+
+    const handler = (event) => {
+      wheelHandlerRef.current?.(event);
+    };
+
+    el.addEventListener("wheel", handler, { passive: false });
+    return () => el.removeEventListener("wheel", handler);
+  }, []);
 
   const handleKeyDown = (event) => {
     if (disabled) return;
     const fineStep = Number(step) || range / 100;
-    const coarseStep = fineStep * 10;
+    const coarseStep = range / 10;
 
     switch (event.key) {
       case "ArrowUp":
@@ -100,18 +124,20 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
     <div className={`knob-wrap knob-${accent} ${className} ${disabled ? "is-disabled" : ""}`.trim()}>
       <div
         className="knob-shell"
+        ref={shellRef}
+        title={title || undefined}
         role="slider"
         tabIndex={disabled ? -1 : 0}
         aria-label={label}
         aria-valuemin={min}
         aria-valuemax={max}
-        aria-valuenow={value}
+        aria-valuenow={safeValue}
+        aria-valuetext={(String(safeValue) + (unit ? " " + unit : "")).trim()}
         aria-disabled={disabled}
         onPointerDown={beginDrag}
         onPointerMove={continueDrag}
         onPointerUp={endDrag}
         onPointerCancel={endDrag}
-        onWheel={handleWheel}
         onKeyDown={handleKeyDown}
       >
         <div className="knob-face" style={{ transform: `rotate(${rotation}deg)` }}>
@@ -120,24 +146,25 @@ export function Knob({ label, min, max, value, onChange, unit = "", step = "0.1"
       </div>
       <div className="knob-label">{label}</div>
       <div className="knob-value">
-        {value.toFixed(decimals)}
+        {Number.isFinite(value) ? value.toFixed(decimals) : "—"}
         {unit ? ` ${unit}` : ""}
       </div>
     </div>
   );
 }
 
-export function BypassButton({ label, enabled, onToggle, className = "" }) {
+export function BypassButton({ label, enabled, onToggle, className = "", effect = "", ariaLabel = "" }) {
   const isPower = className.includes("pedal-power");
+  const accessibleName = ariaLabel || (effect ? `${effect} ${label.toLowerCase()}` : label);
 
   return (
     <button
       className={`bypass-button ${!enabled ? "active" : ""} ${className}`.trim()}
       type="button"
       onClick={onToggle}
-      aria-label={label}
+      aria-label={accessibleName}
       aria-pressed={!enabled}
-      title={label}
+      title={accessibleName}
     >
       {isPower ? (
         <svg
