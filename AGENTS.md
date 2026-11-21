@@ -99,8 +99,9 @@ If you add automated tests, register them with CTest.
   (4-space), braces on their own line for functions/classes, opening
   brace on the same line for control statements (see existing code).
 - Keep the audio core (`Source/`) free of frontend concerns; the bridge
-  lives only in `WebViewEditor`. The JS<->C++ bridge is still incomplete:
-  React controls are not yet fully wired to APVTS parameters.
+  lives only in `WebViewEditor`. Every parameter wired in the React UI
+  round-trips through APVTS (UI -> `setValueNotifyingHost`, host/automation
+  -> UI), so the JS<->C++ bridge is complete for the current parameter set.
 - Git history is commit-per-logical-change with short imperative messages
   ("effect logic", "delay", "tremolo pedal"). Match that style when committing.
 

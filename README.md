@@ -15,23 +15,28 @@ The stages run in this order (see `processBlock` in
 `Source/PluginProcessor.cpp`):
 
 1. Input gain
-2. Gate
-3. Compressor
-4. 10-band graphic EQ
-5. Octave
-6. Doubler
-7. Synth fuzz
-8. Overdrive
-9. Distortion
-10. Fuzz
-11. Delay (stereo / dual mode)
-12. Reverb
-13. Tremolo
-14. Output gain
-15. Mute (global, applied last)
+2. Tuner (analysis only — it does not alter the audio)
+3. Gate
+4. Compressor
+5. 10-band graphic EQ
+6. Octave
+7. Doubler
+8. Synth fuzz
+9. Overdrive
+10. Distortion
+11. Fuzz
+12. Delay (stereo / dual mode)
+13. Reverb
+14. Tremolo
+15. Output gain
+16. Mute (global, applied last)
 
-Plus a tuner, input/output peak meters with clip detection, and an optional
-spectrum analyzer / response curve display.
+Mono Input duplicates the left channel onto the right before processing, so
+a mono source plays out of both speakers and the stereo effects (delay,
+reverb) have a stereo image to work with.
+
+Plus input/output peak meters with clip detection, and an optional spectrum
+analyzer / response curve display.
 
 ## Prerequisites
 
