@@ -23,10 +23,31 @@ ObstacleAudioProcessor::ObstacleAudioProcessor()
                        )
 #endif
 {
+    for (int i = 0; i < 10; ++i)
+        apvts.addParameterListener("EQ Band " + juce::String(i), this);
+
+    apvts.addParameterListener("EQ Bypassed", this);
+
+    // These bypasses gate stages that contribute latency; handleAsyncUpdate()
+    // re-reports the total when one of them changes.
+    apvts.addParameterListener("Octave Bypassed", this);
+    apvts.addParameterListener("Overdrive Bypassed", this);
+    apvts.addParameterListener("Distortion Bypassed", this);
+    apvts.addParameterListener("Fuzz Bypassed", this);
 }
 
 ObstacleAudioProcessor::~ObstacleAudioProcessor()
 {
+    cancelPendingUpdate();
+
+    for (int i = 0; i < 10; ++i)
+        apvts.removeParameterListener("EQ Band " + juce::String(i), this);
+
+    apvts.removeParameterListener("EQ Bypassed", this);
+    apvts.removeParameterListener("Octave Bypassed", this);
+    apvts.removeParameterListener("Overdrive Bypassed", this);
+    apvts.removeParameterListener("Distortion Bypassed", this);
+    apvts.removeParameterListener("Fuzz Bypassed", this);
 }
 
 //==============================================================================
@@ -110,7 +131,32 @@ void ObstacleAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
     for (auto& f : rightGraphicEq)
         f.prepare(spec);
 
-    updateFilters();
+    // Rebuild the graphic-EQ bank on the message thread so the first audio
+    // block picks up coefficients matching this sample rate. Any parameter
+    // change that lands before that block is picked up by the same bank.
+    if (rebuildGraphicEqCoefficients())
+    {
+        // Apply the freshly published coefficients here and reset each
+        // filter. Filter::reset() is what refreshes the filter's internal
+        // order from its coefficients: the filters were prepared while
+        // still holding the default first-order set, so without this they
+        // would keep running the biquad coefficients through the
+        // first-order processing path. reset() may allocate, so it only
+        // ever runs here, with audio stopped.
+        const auto slot = graphicEqActiveSlot.load(std::memory_order_acquire);
+
+        for (size_t i = 0; i < leftGraphicEq.size(); ++i)
+        {
+            const auto& bandCoeffs = graphicEqCoeffBank[static_cast<size_t>(slot)][i];
+            *leftGraphicEq[i].coefficients  = bandCoeffs;
+            *rightGraphicEq[i].coefficients = bandCoeffs;
+        }
+
+        for (auto& f : leftGraphicEq)
+            f.reset();
+        for (auto& f : rightGraphicEq)
+            f.reset();
+    }
     
     leftChannelFifo.prepare(samplesPerBlock);
     rightChannelFifo.prepare(samplesPerBlock);
@@ -199,6 +245,7 @@ void ObstacleAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
 
     constexpr int tunerWindowSize = 2048;
     tunerYinBuffer.assign(static_cast<size_t>(tunerWindowSize), 0.0f);
+    tunerYinScratch.assign(static_cast<size_t>(tunerWindowSize / 2), 0.0f);
     tunerAnalysisBuffer.assign(static_cast<size_t>(tunerWindowSize), 0.0f);
     tunerYinBufferWriteIndex = 0;
     tunerSamplesUntilNextAnalysis = tunerWindowSize;
@@ -211,29 +258,51 @@ void ObstacleAudioProcessor::prepareToPlay (double sampleRate, int samplesPerBlo
 
 void ObstacleAudioProcessor::updateLatency()
 {
-    // Oversampler delays are fixed and accumulate in series. The octave
-    // stage's pitch shifter has a data-dependent natural latency
-    // (grainLength / pitchRatio, 1024..4096 samples across the +/-12 st
-    // range), so we always run the shifter and pad its output with a
-    // matching fractional delay so the stage's total contribution is a
-    // constant 4096 samples. That gives the host a stable number it can
-    // compensate against without per-sample surprises when the user
-    // moves the transpose knob.
-    //
-    // Called once from prepareToPlay. Both summands below are
-    // deterministic compile-time constants after prepareToPlay has
-    // initialised the oversamplers, so the result is bit-stable across
-    // processBlock calls -- the host can rely on it without re-querying.
-    const auto oversamplerLatency = overdriveOversampler.getLatencyInSamples()
-                                  + distOversampler.getLatencyInSamples()
-                                  + fuzzOversampler.getLatencyInSamples();
-    // kOctaveStageLatencySamples is the worst-case grain lookback the
-    // octave stage contributes; derived from the transpose range and
-    // the shifter's grain length. See applyOctave() for the matching
-    // derivation.
-    constexpr int kOctaveStageLatencySamples = kOctaveWorstCaseLookback;
+    setLatencySamples(computeLatencySamples());
+}
 
-    setLatencySamples(static_cast<int>(oversamplerLatency) + kOctaveStageLatencySamples);
+int ObstacleAudioProcessor::computeLatencySamples() const
+{
+    // Only stages that actually run contribute delay. A bypassed stage's
+    // apply*() returns before touching its oversampler or the octave
+    // shifter+pad, so its samples must not be reported to the host: doing so
+    // would make the plugin play earlier than the host's PDC compensation
+    // expects after the user turns a pedal off.
+    //
+    // The bypass reads mirror getChainSettings()'s raw-value pattern (cheap
+    // atomic loads). The oversampler latencies are fixed after
+    // initProcessing(), so this is cheap enough to run on bypass changes.
+    const auto rawValue = [this](const char* parameterID) -> float
+    {
+        const auto* value = apvts.getRawParameterValue(parameterID);
+        return value != nullptr ? value->load() : 0.0f;
+    };
+
+    int latencySamples = 0;
+
+    // The octave stage's pitch shifter has a data-dependent natural latency
+    // (grainLength / pitchRatio, 512..2048 samples across the +/-12 st
+    // range), so we always run the shifter and pad its output with a matching
+    // fractional delay so every grain starts at the same latency,
+    // kOctaveWorstCaseLookback. Within a grain the read pointer advances at
+    // pitchRatio while the write pointer advances at 1, so the effective delay
+    // drifts by up to (1 - pitchRatio) * grainLength; the pad only aligns the
+    // grain starts. The reported value is therefore the grain-start latency
+    // (worst case, padded), and the host's PDC compensation is approximate
+    // within a grain rather than an exact constant group delay.
+    if (rawValue("Octave Bypassed") <= 0.5f)
+        latencySamples += kOctaveWorstCaseLookback;
+
+    // The three drive stages are oversampled; their filter group delays
+    // accumulate in series.
+    if (rawValue("Overdrive Bypassed") <= 0.5f)
+        latencySamples += static_cast<int>(overdriveOversampler.getLatencyInSamples());
+    if (rawValue("Distortion Bypassed") <= 0.5f)
+        latencySamples += static_cast<int>(distOversampler.getLatencyInSamples());
+    if (rawValue("Fuzz Bypassed") <= 0.5f)
+        latencySamples += static_cast<int>(fuzzOversampler.getLatencyInSamples());
+
+    return latencySamples;
 }
 
 void ObstacleAudioProcessor::releaseResources()
@@ -293,10 +362,9 @@ void ObstacleAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     applyGain(buffer, chainSettings.inputGainInDecibels);
 
-    applyTuner(buffer, chainSettings);
-
-    applyGate(buffer, chainSettings);
-
+    // Meter/clip the true input: post input gain, before any effect (tuner is
+    // analysis only and leaves the audio untouched, gate would hide the level
+    // the user is feeding in).
     bool didInputClip = false;
     float inputPeak = 0.0f;
     for( int channel = 0; channel < buffer.getNumChannels(); ++channel )
@@ -315,24 +383,55 @@ void ObstacleAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
 
     pushPeakLevel(inputPeakLevel, inputPeak);
 
+    applyTuner(buffer, chainSettings);
+
+    applyGate(buffer, chainSettings);
+
     applyCompressor(buffer, chainSettings);
 
-    updateFilters();
+    // Apply a freshly rebuilt coefficient bank, if one was published by the
+    // message thread. The bank values are copied into the live filter
+    // coefficients in place: fixed-size array assignment, no allocation and
+    // no locks, so this is safe on the audio thread.
+    if (graphicEqApplyPending.exchange(false, std::memory_order_acq_rel))
+    {
+        const auto slot = graphicEqActiveSlot.load(std::memory_order_acquire);
+
+        for (size_t i = 0; i < leftGraphicEq.size(); ++i)
+        {
+            const auto& bandCoeffs = graphicEqCoeffBank[static_cast<size_t>(slot)][i];
+            *leftGraphicEq[i].coefficients  = bandCoeffs;
+            *rightGraphicEq[i].coefficients = bandCoeffs;
+        }
+
+        graphicEqLastConsumedSlot.store(slot, std::memory_order_release);
+    }
 
     juce::dsp::AudioBlock<float> block(buffer);
 
     auto leftBlock = block.getSingleChannelBlock(0);
-    auto rightBlock = block.getSingleChannelBlock(1);
 
     juce::dsp::ProcessContextReplacing<float> leftContext(leftBlock);
-    juce::dsp::ProcessContextReplacing<float> rightContext(rightBlock);
 
     if (!chainSettings.graphicEqBypassed)
     {
-        for (size_t i = 0; i < leftGraphicEq.size(); ++i)
+        // Mono sessions have no channel 1: run only the left EQ chain so the
+        // block never indexes past the buffer.
+        if (buffer.getNumChannels() > 1)
         {
-            leftGraphicEq[i].process(leftContext);
-            rightGraphicEq[i].process(rightContext);
+            auto rightBlock = block.getSingleChannelBlock(1);
+            juce::dsp::ProcessContextReplacing<float> rightContext(rightBlock);
+
+            for (size_t i = 0; i < leftGraphicEq.size(); ++i)
+            {
+                leftGraphicEq[i].process(leftContext);
+                rightGraphicEq[i].process(rightContext);
+            }
+        }
+        else
+        {
+            for (size_t i = 0; i < leftGraphicEq.size(); ++i)
+                leftGraphicEq[i].process(leftContext);
         }
     }
 
@@ -380,7 +479,11 @@ void ObstacleAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juc
     pushPeakLevel(outputPeakLevel, outputPeak);
     
     leftChannelFifo.update(buffer);
-    rightChannelFifo.update(buffer);
+
+    // The analyzer's right channel only exists in a stereo block; a mono
+    // session leaves rightChannelFifo untouched.
+    if (buffer.getNumChannels() > 1)
+        rightChannelFifo.update(buffer);
     
 }
 
@@ -400,6 +503,22 @@ void ObstacleAudioProcessor::applyTuner(juce::AudioBuffer<float>& buffer, const 
     const auto windowSize = static_cast<int>(tunerYinBuffer.size());
     if (windowSize <= 0)
         return;
+
+    // Tuner bypassed: skip the per-window autocorrelation (O(n^2)) entirely,
+    // but keep the ring buffer fresh and the telemetry silent so re-enabling
+    // the tuner analyses recent audio instead of a stale window.
+    if (chainSettings.tunerBypassed)
+    {
+        std::fill(tunerYinBuffer.begin(), tunerYinBuffer.end(), 0.0f);
+        tunerYinBufferWriteIndex = 0;
+        tunerSamplesUntilNextAnalysis = windowSize;
+
+        tunerDetectedFrequencyHz.store(0.0f, std::memory_order_release);
+        tunerDetectedCents.store(0.0f, std::memory_order_release);
+        tunerDetectedNoteIndex.store(-1, std::memory_order_release);
+        tunerDetectedLevel.store(-60.0f, std::memory_order_release);
+        return;
+    }
 
     const auto referenceHz = juce::jlimit(430.0f, 450.0f, chainSettings.tunerReferencePitchHz);
     const auto halfBufferLevel = 1.0e-3f;
@@ -430,8 +549,11 @@ void ObstacleAudioProcessor::applyTuner(juce::AudioBuffer<float>& buffer, const 
         // octave correction to prefer the lower octave when the signal
         // looks like it's landed on a harmonic.
         const auto fs = static_cast<float>(tunerAnalysisSampleRate);
-        const int tauMax = windowSize / 2;
-        std::vector<float> yin(static_cast<size_t>(tauMax), 0.0f);
+        // Bounded by the pre-allocated scratch so the audio thread never
+        // allocates here. Every element below tauMax is rewritten before it is
+        // read, so no clearing is needed.
+        const auto tauMax = juce::jmin(windowSize / 2, static_cast<int>(tunerYinScratch.size()));
+        auto& yin = tunerYinScratch;
         for (int tau = 1; tau < tauMax; ++tau)
         {
             auto sum = 0.0f;
@@ -623,24 +745,46 @@ juce::AudioProcessorEditor* ObstacleAudioProcessor::createEditor()
 //==============================================================================
 void ObstacleAudioProcessor::getStateInformation (juce::MemoryBlock& destData)
 {
-    // You should use this method to store your parameters in the memory block.
-    // You could do that either as raw data, or use the XML or ValueTree classes
-    // as intermediaries to make it easy to save and load complex data.
-    
+    // APVTS flushes parameter values to its ValueTree on a timer, so writing
+    // apvts.state directly can miss the last UI moves when a host saves
+    // immediately after a change. copyState() flushes first and returns a
+    // consistent snapshot.
+    auto state = apvts.copyState();
+
     juce::MemoryOutputStream mos(destData, true);
-    apvts.state.writeToStream(mos);
+    state.writeToStream(mos);
 }
 
 void ObstacleAudioProcessor::setStateInformation (const void* data, int sizeInBytes)
 {
-    // You should use this method to restore your parameters from this memory block,
-    // whose contents will have been created by the getStateInformation() call.
     auto tree = juce::ValueTree::readFromData(data, sizeInBytes);
-    if( tree.isValid() )
+    if (!tree.isValid())
+        return;
+
+    // Normally the blob is the APVTS root tree. Some hosts/presets wrap it,
+    // so accept a child of the expected type as a fallback.
+    const auto stateType = apvts.state.getType();
+    if (!tree.hasType(stateType))
     {
-        apvts.replaceState(tree);
-        updateFilters();
+        for (int i = 0; i < tree.getNumChildren(); ++i)
+        {
+            if (tree.getChild(i).hasType(stateType))
+            {
+                tree = tree.getChild(i);
+                break;
+            }
+        }
     }
+
+    if (!tree.hasType(stateType))
+        return;
+
+    apvts.replaceState(tree);
+
+    // Rebuild the graphic-EQ bank for the restored values. Hosts often restore
+    // state before prepareToPlay; rebuildGraphicEqCoefficients() re-queues the
+    // work when the sample rate is not known yet, and prepareToPlay retries.
+    rebuildGraphicEqCoefficients();
 }
 
 ChainSettings getChainSettings(juce::AudioProcessorValueTreeState& apvts)
@@ -824,10 +968,11 @@ void ObstacleAudioProcessor::applyOctave(juce::AudioBuffer<float>& buffer, const
     const auto toneNorm  = juce::jlimit(0.0f, 1.0f, chainSettings.octaveTone);
     const bool monoDetector = chainSettings.octaveMonoDetector;
 
-    // Transpose shifts the generated sub voice by N semitones. The engine
-    // always produces a -1 octave square wave, so the base pitchRatio is 0.5
-    // and we apply 2^(st/12) on top of that. At transpose=0 the result is
-    // the unmodified sub. At +/-12 the sub moves to 0 or -2 octaves.
+    // The zero-cross flip-flop in the sample loop below already produces a
+    // -1 octave square wave, so the shifter ratio is just 2^(st/12): at 0 st
+    // the sub passes through unchanged, +12 moves it to unison, and -12
+    // moves it to -2 octaves. Applying an extra 0.5 here would shift the
+    // default setting down two octaves instead of one.
     // The transpose range and the worst-case lookback are defined
     // together in the header (kOctaveTranspose{Min,Max}Semitones and
     // kOctaveWorstCaseLookback) so the APVTS layout and the latency
@@ -836,10 +981,10 @@ void ObstacleAudioProcessor::applyOctave(juce::AudioBuffer<float>& buffer, const
     const auto transposeSemitones = juce::jlimit(kOctaveTransposeMinSemitones,
                                                  kOctaveTransposeMaxSemitones,
                                                  chainSettings.octaveTransposeSemitones);
-    const float pitchRatio = std::pow(2.0f, transposeSemitones / 12.0f) * 0.5f;
+    const float pitchRatio = std::pow(2.0f, transposeSemitones / 12.0f);
 
     // The granular pitch shifter has a grain lookback of
-    // grainLength / pitchRatio, which is data-dependent (1024..4096
+    // grainLength / pitchRatio, which is data-dependent (512..2048
     // samples across the +/-12 st range). To keep the plugin's total
     // output latency constant — so the host's PDC stays correct and
     // there's no click on knob change — we always run the shifter and
@@ -849,36 +994,40 @@ void ObstacleAudioProcessor::applyOctave(juce::AudioBuffer<float>& buffer, const
     // kOctaveWorstCaseLookback. updateLatency() reports that same fixed
     // number, and the per-channel octavePadDelay is a 262144-sample
     // ring buffer (DelayLine::size) so it has plenty of headroom for
-    // the 4096-sample worst case.
+    // the 2048-sample worst case.
     //
-    // Clamp the ratio to [2^(Min/12) * 0.5, 1.0] -- with the current
-    // +/-12 st range the upper bound of 1.0 is what we actually hit at
-    // the +12 extreme, and the lower bound of 0.25 matches the ratio
-    // the worst-case lookback was derived from. The value is hardcoded
+    // Clamp the ratio to [2^(Min/12), 2^(Max/12)] -- with the current
+    // +/-12 st range that is [0.5, 2.0]. The bounds are hardcoded
     // (rather than computed via std::pow) because std::pow is not
-    // constexpr until C++23 and we want a compile-time constant for
+    // constexpr until C++23 and we want compile-time constants for
     // the clamp.
     //
-    // If this fires, kMinPitchRatio is out of sync with
-    // kOctaveTransposeMinSemitones -- recompute the literal above
-    // (2^(Min/12) * 0.5) and update both together.
+    // If either assert fires, recompute the literal from the transpose
+    // range and update the literal and header constant together.
     static_assert(kOctaveTransposeMinSemitones == -12.0f,
-                  "kMinPitchRatio (0.25f) assumes -12 semitones; "
+                  "kMinPitchRatio (0.5f) assumes -12 semitones; "
                   "update both the literal and kOctaveTransposeMinSemitones together");
-    constexpr float kMinPitchRatio = 0.25f; // 2^(-12/12) * 0.5
-    const float clampedRatio = juce::jlimit(kMinPitchRatio, 1.0f, pitchRatio);
+    static_assert(kOctaveTransposeMaxSemitones == 12.0f,
+                  "kMaxPitchRatio (2.0f) assumes +12 semitones; "
+                  "update both the literal and kOctaveTransposeMaxSemitones together");
+    constexpr float kMinPitchRatio = 0.5f;  // 2^(-12/12)
+    constexpr float kMaxPitchRatio = 2.0f;  // 2^(+12/12)
+    const float clampedRatio = juce::jlimit(kMinPitchRatio, kMaxPitchRatio, pitchRatio);
     const float shifterLookback =
         static_cast<float>(GranularPitchShifter::grainLength) / clampedRatio;
     const float octaveShifterPadSamples =
         static_cast<float>(kOctaveWorstCaseLookback) - shifterLookback;
 
-    // Scratch-buffer safety: make sure the dry snapshot is large enough before
-    // we write into it. prepareToPlay pre-sizes it, but a host reconfigure
-    // could change the channel count.
+    // Scratch-buffer safety: prepareToPlay pre-sizes the dry snapshot for the
+    // host's channel count and block size. A host that reconfigures without
+    // re-preparing would break that contract; never allocate here (this runs on
+    // the audio thread) -- assert in Debug and let the block pass through this
+    // stage unprocessed instead.
     if (dryScratchBuffer.getNumChannels() < numChannels
         || dryScratchBuffer.getNumSamples() < numSamples)
     {
-        dryScratchBuffer.setSize(numChannels, numSamples);
+        jassertfalse;
+        return;
     }
     for (int ch = 0; ch < numChannels; ++ch)
         dryScratchBuffer.copyFrom(ch, 0, buffer.getReadPointer(ch), numSamples);
@@ -993,9 +1142,9 @@ void ObstacleAudioProcessor::applyOctave(juce::AudioBuffer<float>& buffer, const
             // every transpose setting — that gives us constant group
             // delay and no click when the user crosses through 0. The
             // shifter's natural latency is grainLength / pitchRatio
-            // (1024..4096 samples across the +/-12 st range); we pad
+            // (512..2048 samples across the +/-12 st range); we pad
             // the rest with a fractional delay line so the total is
-            // always the worst-case 4096 samples. The host reports this
+            // always the worst-case 2048 samples. The host reports this
             // fixed value once in prepareToPlay.
             const auto pitchShifted = octavePitchShifters[channelIndex]
                                           .processSample(subWithEnv, pitchRatio);
@@ -1093,27 +1242,34 @@ void ObstacleAudioProcessor::applyDelay(juce::AudioBuffer<float>& buffer, const 
         ? std::array<float, 2> { timeLSamples, timeRSamples }
         : std::array<float, 2> { timeLSamples, timeLSamples };
 
-    // For a mono source the right channel arrives silent, which would keep the
-    // ch1 delay line permanently at 0. Feed ch1's delay line from the left
-    // channel so the right-channel delay still works in Dual mode.
-    auto* ch0Data = buffer.getReadPointer(0);
+    const auto numChannels = buffer.getNumChannels();
+    const auto numSamples = buffer.getNumSamples();
+    if (numChannels <= 0 || numSamples <= 0)
+        return;
 
-    for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+    auto* leftData = buffer.getWritePointer(0);
+    auto* rightData = numChannels > 1 ? buffer.getWritePointer(1) : nullptr;
+    auto& leftLine = delayDelayLines[0];
+    auto& rightLine = delayDelayLines[1];
+
+    // Capture each channel's dry sample before writing its output. The old
+    // implementation fed the right delay line from the already-processed left
+    // channel, which created unintended cross-feedback in Dual mode and made
+    // the two delay times sound different.
+    for (int sample = 0; sample < numSamples; ++sample)
     {
-        const auto channelIndex = static_cast<size_t>(juce::jmin(channel, 1));
-        auto* channelData = buffer.getWritePointer(channel);
-        auto& line = delayDelayLines[channelIndex];
-        const auto delaySamples = delays[channelIndex];
+        const auto dryLeft = leftData[sample];
+        const auto dryRight = rightData != nullptr ? rightData[sample] : dryLeft;
 
-        const auto* feed = (channel == 1) ? ch0Data : channelData;
+        const auto wetLeft = leftLine.read(delays[0]);
+        leftLine.push(dryLeft + wetLeft * feedback);
+        leftData[sample] = dryLeft * (1.0f - mix) + wetLeft * mix;
 
-        for (int sample = 0; sample < buffer.getNumSamples(); ++sample)
+        if (rightData != nullptr)
         {
-            const auto dry = channelData[sample];
-            const auto wet = line.read(delaySamples);
-            const auto nextWet = feed[sample] + wet * feedback;
-            line.push(nextWet);
-            channelData[sample] = dry * (1.0f - mix) + wet * mix;
+            const auto wetRight = rightLine.read(delays[1]);
+            rightLine.push(dryRight + wetRight * feedback);
+            rightData[sample] = dryRight * (1.0f - mix) + wetRight * mix;
         }
     }
 }
@@ -1134,6 +1290,16 @@ void ObstacleAudioProcessor::applyOverdrive(juce::AudioBuffer<float>& buffer, co
     const auto wetMix = juce::jmap(driveNorm, 0.0f, 1.0f, 0.20f, 0.90f);
     const auto autoGain = juce::jlimit(0.40f, 1.0f, std::pow(preGain, -0.32f));
     const auto levelGain = juce::Decibels::decibelsToGain(chainSettings.overdriveLevelInDecibels);
+
+    // The drive stages crossfade against a dry snapshot that prepareToPlay
+    // sizes. Guard against a host reconfiguring without re-preparing: assert in
+    // Debug and skip the stage rather than allocating on the audio thread.
+    if (dryScratchBuffer.getNumChannels() < buffer.getNumChannels()
+        || dryScratchBuffer.getNumSamples() < buffer.getNumSamples())
+    {
+        jassertfalse;
+        return;
+    }
 
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
         dryScratchBuffer.copyFrom (ch, 0, buffer.getReadPointer (ch), buffer.getNumSamples());
@@ -1248,6 +1414,16 @@ void ObstacleAudioProcessor::applyDistortion(juce::AudioBuffer<float>& buffer, c
         return (x > 0.0f ? 2.0f / 3.0f : -2.0f / 3.0f);
     };
 
+    // The drive stages crossfade against a dry snapshot that prepareToPlay
+    // sizes. Guard against a host reconfiguring without re-preparing: assert in
+    // Debug and skip the stage rather than allocating on the audio thread.
+    if (dryScratchBuffer.getNumChannels() < buffer.getNumChannels()
+        || dryScratchBuffer.getNumSamples() < buffer.getNumSamples())
+    {
+        jassertfalse;
+        return;
+    }
+
     // Snapshot the dry signal into a pre-allocated scratch buffer so the
     // final crossfade can read the unmodified input. Captured *before*
     // the pre-HPF so the crossfade keeps the full low end in the
@@ -1359,6 +1535,16 @@ void ObstacleAudioProcessor::applyFuzz(juce::AudioBuffer<float>& buffer, const C
     const auto octaveBlend = juce::jmap(driveNorm, 0.0f, 1.0f, 0.0f, 0.35f);
     const auto autoGain = juce::jlimit(0.20f, 1.0f, std::pow(preGain, -0.35f));
     const auto levelGain = juce::Decibels::decibelsToGain(chainSettings.fuzzLevelInDecibels);
+
+    // The drive stages crossfade against a dry snapshot that prepareToPlay
+    // sizes. Guard against a host reconfiguring without re-preparing: assert in
+    // Debug and skip the stage rather than allocating on the audio thread.
+    if (dryScratchBuffer.getNumChannels() < buffer.getNumChannels()
+        || dryScratchBuffer.getNumSamples() < buffer.getNumSamples())
+    {
+        jassertfalse;
+        return;
+    }
 
     for (int ch = 0; ch < buffer.getNumChannels(); ++ch)
         dryScratchBuffer.copyFrom (ch, 0, buffer.getReadPointer (ch), buffer.getNumSamples());
@@ -1669,31 +1855,89 @@ static constexpr std::array<float, 10> graphicEqFrequencies {
 // Constant-Q for 1-octave spacing: Q = 1 / sin(pi/4) ~= 1.4142.
 static constexpr float graphicEqQ = 1.41421356f;
 
-void updateCoefficients(Coefficients &old, const Coefficients &replacements)
-{
-    *old = *replacements;
-}
-
-void ObstacleAudioProcessor::updateGraphicEq(const ChainSettings& chainSettings)
+// Rebuilds all 10 graphic-EQ band coefficients into a spare bank slot and
+// publishes that slot for the audio thread. Message thread only: the peak
+// filter maths and any allocation that goes with it happen here, never in
+// processBlock.
+bool ObstacleAudioProcessor::rebuildGraphicEqCoefficients()
 {
     const auto sampleRate = getSampleRate();
+
+    // Hosts often restore state before prepareToPlay, so the sample rate may
+    // not be known yet; leave the rebuild queued and retry once the rate is
+    // available.
+    if (sampleRate <= 0.0)
+    {
+        graphicEqRebuildPending.store(true, std::memory_order_release);
+        return false;
+    }
+
+    const auto chainSettings = getChainSettings(apvts);
     const bool bypassed = chainSettings.graphicEqBypassed;
+
+    const auto activeSlot = graphicEqActiveSlot.load(std::memory_order_acquire);
+    const auto consumedSlot = graphicEqLastConsumedSlot.load(std::memory_order_acquire);
+
+    // With three slots there is always one that neither the audio thread is
+    // reading nor has just consumed.
+    int slot = 0;
+    while (slot == activeSlot || slot == consumedSlot)
+        ++slot;
 
     for (size_t i = 0; i < graphicEqFrequencies.size(); ++i)
     {
         const auto gainDb = bypassed ? 0.0f : chainSettings.graphicEqBandDb[i];
-        const auto coeffs = juce::dsp::IIR::Coefficients<float>::makePeakFilter(
-            sampleRate, graphicEqFrequencies[i], graphicEqQ,
-            juce::Decibels::decibelsToGain(gainDb));
-
-        updateCoefficients(leftGraphicEq[i].coefficients, coeffs);
-        updateCoefficients(rightGraphicEq[i].coefficients, coeffs);
+        graphicEqCoeffBank[static_cast<size_t>(slot)][i]
+            = juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter(
+                sampleRate, graphicEqFrequencies[i], graphicEqQ,
+                juce::Decibels::decibelsToGain(gainDb));
     }
+
+    graphicEqActiveSlot.store(slot, std::memory_order_release);
+    graphicEqApplyPending.store(true, std::memory_order_release);
+
+    return true;
 }
 
-void ObstacleAudioProcessor::updateFilters()
+void ObstacleAudioProcessor::handleAsyncUpdate()
 {
-    updateGraphicEq(getChainSettings(apvts));
+    // Consume the request here rather than at the end of the rebuild: a
+    // parameter change that lands while the rebuild runs re-raises the flag and
+    // triggers another update, so the newest values are never dropped.
+    if (graphicEqRebuildPending.exchange(false, std::memory_order_acq_rel))
+        rebuildGraphicEqCoefficients();
+
+    // Bypass changes alter how many samples the chain delays, so the host has
+    // to be told the new total. setLatencySamples() is documented as callable
+    // later if the value changes, and this is the message thread.
+    if (latencyNeedsUpdate.exchange(false, std::memory_order_acq_rel))
+        updateLatency();
+}
+
+void ObstacleAudioProcessor::parameterChanged(const juce::String& parameterID, float newValue)
+{
+    juce::ignoreUnused(newValue);
+
+    if (parameterID.startsWith("EQ Band ") || parameterID == "EQ Bypassed")
+    {
+        // Hosts can call this from the audio thread, so only atomic stores and
+        // triggerAsyncUpdate() (documented safe from any thread) are allowed.
+        // The actual coefficient maths runs later on the message thread.
+        graphicEqRebuildPending.store(true, std::memory_order_release);
+        triggerAsyncUpdate();
+        return;
+    }
+
+    if (parameterID == "Octave Bypassed"
+        || parameterID == "Overdrive Bypassed"
+        || parameterID == "Distortion Bypassed"
+        || parameterID == "Fuzz Bypassed")
+    {
+        // Same audio-thread constraint: only flag the work and let
+        // handleAsyncUpdate() call setLatencySamples() on the message thread.
+        latencyNeedsUpdate.store(true, std::memory_order_release);
+        triggerAsyncUpdate();
+    }
 }
 
 juce::AudioProcessorValueTreeState::ParameterLayout ObstacleAudioProcessor::createParameterLayout()

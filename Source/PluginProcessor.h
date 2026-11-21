@@ -77,8 +77,8 @@ private:
 
 enum Channel
 {
-    Right, //effectively 0
-    Left //effectively 1
+    Left,  //effectively 0 -- JUCE channel 0 is the left channel
+    Right  //effectively 1
 };
 
 template<typename BlockType>
@@ -249,14 +249,14 @@ private:
 // (see the layout.add call for "Octave Transpose"). The worst-case
 // lookback below is derived from the lower end of the range so the
 // two cannot drift apart: if the APVTS range is widened, the new
-// pitchRatio extremes are 2^(newMin/12)*0.5 .. 2^(newMax/12)*0.5, and
-// the worst-case lookback is grainLength / min(pitchRatio). Update
+// pitchRatio extremes are 2^(newMin/12) .. 2^(newMax/12), and the
+// worst-case lookback is grainLength / min(pitchRatio). Update
 // these three constants together.
 constexpr float kOctaveTransposeMinSemitones = -12.0f;
 constexpr float kOctaveTransposeMaxSemitones =  12.0f;
-// At the extreme low end, pitchRatio = 2^(min/12) * 0.5 = 0.25 and the
-// shifter's grain lookback is grainLength / 0.25 = 4 * grainLength.
-constexpr int   kOctaveWorstCaseLookback = GranularPitchShifter::grainLength * 4; // 4096
+// At the extreme low end, pitchRatio = 2^(min/12) = 0.5 and the
+// shifter's grain lookback is grainLength / 0.5 = 2 * grainLength.
+constexpr int   kOctaveWorstCaseLookback = GranularPitchShifter::grainLength * 2; // 2048
 
 //==============================================================================
 // Simple fractional delay line. Buffer size must be a power of two.
@@ -375,30 +375,24 @@ enum ChainPositions
     HighCut
 };
 
-using Coefficients = Filter::CoefficientsPtr;
-void updateCoefficients(Coefficients& old, const Coefficients& replacements);
-
-template<int Index, typename ChainType, typename CoefficientType>
-void update(ChainType& chain, const CoefficientType& coefficients)
-{
-    updateCoefficients(chain.template get<Index>().coefficients, coefficients[Index]);
-    chain.template setBypassed<Index>(false);
-}
-
 //==============================================================================
 /**
 */
 class ObstacleAudioProcessor  : public juce::AudioProcessor
+                             , private juce::AudioProcessorValueTreeState::Listener
+                             , private juce::AsyncUpdater
 {
 public:
     //==============================================================================
     ObstacleAudioProcessor();
     ~ObstacleAudioProcessor() override;
 
-    // Recompute and report the total latency. Called from prepareToPlay
-    // and whenever the Octave Transpose parameter changes (the octave
-    // stage's granular pitch shifter has a lookback that varies with the
-    // transpose ratio; at transpose=0 the shifter is bypassed entirely).
+    // Recompute and report the total latency. Called from prepareToPlay and
+    // from handleAsyncUpdate() when a latency-affecting bypass changes.
+    // Only the stages that are actually active contribute: a bypassed stage
+    // adds no delay. The octave stage always runs its pitch shifter and pads
+    // the output to a fixed lookback, so the reported latency does not change
+    // when the transpose knob moves.
     void updateLatency();
 
     //==============================================================================
@@ -478,12 +472,28 @@ public:
     }
     
     using BlockType = juce::AudioBuffer<float>;
+    // Channel::Left == 0 and Channel::Right == 1, matching JUCE's buffer
+    // channel order (0 is left).
     SingleChannelSampleFifo<BlockType> leftChannelFifo { Channel::Left };
     SingleChannelSampleFifo<BlockType> rightChannelFifo { Channel::Right };
 private:
+    void parameterChanged(const juce::String& parameterID, float newValue) override;
+
+    // Sums the delays of the stages that are currently active, using the raw
+    // APVTS bypass values (cheap atomic loads). Message thread only: called
+    // from updateLatency(), never from processBlock.
+    int computeLatencySamples() const;
+
     GraphicEQ leftGraphicEq, rightGraphicEq;
 
-    void updateGraphicEq(const ChainSettings& chainSettings);
+    // Runs only on the message thread. Rebuilds all 10 graphic-EQ band
+    // coefficients into a spare bank slot and publishes it for the audio
+    // thread to pick up (see the bank declarations below). Returns true
+    // when a bank was published; false when the sample rate is not known
+    // yet and the rebuild stays queued for the next attempt.
+    bool rebuildGraphicEqCoefficients();
+    void handleAsyncUpdate() override;
+
     void applyCompressor(juce::AudioBuffer<float>& buffer, const ChainSettings& chainSettings);
     void applyOctave(juce::AudioBuffer<float>& buffer, const ChainSettings& chainSettings);
     void applyDoubler(juce::AudioBuffer<float>& buffer, const ChainSettings& chainSettings);
@@ -499,7 +509,38 @@ private:
     void applyGate(juce::AudioBuffer<float>& buffer, const ChainSettings& chainSettings);
     void pushPeakLevel(std::atomic<float>& targetPeak, float peakValue);
 
-    void updateFilters();
+    // Lock-free triple-buffered graphic-EQ coefficient bank.
+    //
+    // The message thread writes a complete set of 10 bands into a slot that is
+    // neither the active slot nor the slot the audio thread last consumed, then
+    // release-publishes that slot. The audio thread copies the raw values into
+    // the live juce::dsp::IIR::Coefficients objects at the start of the block,
+    // which never allocates because each Coefficients' internal juce::Array is
+    // already sized/capacity-reserved (6-element peak-filter construction
+    // reserves 16 floats in the filter's default constructor).
+    //
+    // Values are the raw 6-element peak-filter coefficient arrays
+    // (b0, b1, b2, a0, a1, a2) as produced by
+    // juce::dsp::IIR::ArrayCoefficients<float>::makePeakFilter. The public
+    // Coefficients member that receives them is `juce::Array<float>` (5
+    // normalised values), so the audio thread assigns via
+    // Coefficients::operator=(const std::array<float, 6>&), which normalises by
+    // a0 in place exactly like Coefficients::makePeakFilter does.
+    static constexpr int graphicEqNumBands = 10;
+    static constexpr int graphicEqBankSlots = 3;
+    std::array<std::array<std::array<float, 6>, graphicEqNumBands>, graphicEqBankSlots>
+        graphicEqCoeffBank {};
+
+    std::atomic<int>  graphicEqActiveSlot { 0 };
+    std::atomic<int>  graphicEqLastConsumedSlot { 0 };
+    std::atomic<bool> graphicEqApplyPending { false };   // consumed by the audio thread
+    std::atomic<bool> graphicEqRebuildPending { true };  // consumed by the message thread
+
+    // Raised from parameterChanged() when an octave/overdrive/distortion/fuzz
+    // bypass changes and consumed by handleAsyncUpdate() (message thread) to
+    // re-report the latency. Kept atomic because parameterChanged() may run on
+    // the audio thread.
+    std::atomic<bool> latencyNeedsUpdate { true };
 
     std::atomic<bool> inputClippingDetected { false };
     std::atomic<bool> outputClippingDetected { false };
@@ -512,6 +553,10 @@ private:
     std::atomic<int>   tunerDetectedNoteIndex { -1 };
 
     std::vector<float> tunerYinBuffer;
+    // Scratch for the YIN difference function inside applyTuner's analysis
+    // window. Pre-allocated in prepareToPlay so the audio thread never
+    // allocates; every element is rewritten before it is read.
+    std::vector<float> tunerYinScratch;
     std::vector<float> tunerAnalysisBuffer;
     int tunerYinBufferWriteIndex { 0 };
     int tunerSamplesUntilNextAnalysis { 0 };
