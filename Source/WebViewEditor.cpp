@@ -26,7 +26,9 @@ juce::String getMimeTypeForExtension(const juce::String& extension)
     return "application/octet-stream";
 }
 
-juce::var makeSnapshotVar(float inputGain,
+// Builds the payload of every property that mirrors an APVTS parameter. The
+// key names are the frontend's contract (see WebUI/src/App.jsx).
+juce::var makeParameterValuesVar(float inputGain,
                           float outputGain,
                           bool  monoInput,
                           bool  mute,
@@ -37,6 +39,7 @@ juce::var makeSnapshotVar(float inputGain,
                           float compressorLevel,
                           float octaveTranspose,
                           float octaveMix,
+                          float octaveLevel,
                           float octaveTone,
                           bool  octaveMonoDetector,
                           float doublerMix,
@@ -83,18 +86,7 @@ juce::var makeSnapshotVar(float inputGain,
                           bool reverbBypassed,
                           bool tunerBypassed,
                           bool gateBypassed,
-                          bool analyzerEnabled,
-                          float inputPeak,
-                          float outputPeak,
-                          bool inputClipping,
-                          bool outputClipping,
-                          juce::var tunerFrequency,
-                          juce::var tunerCents,
-                          juce::var tunerNoteIndex,
-                          juce::var tunerLevel,
-                          juce::var responseCurve,
-                          juce::var leftSpectrum,
-                          juce::var rightSpectrum)
+                          bool analyzerEnabled)
 {
     auto payload = std::make_unique<juce::DynamicObject>();
     payload->setProperty("inputGain", inputGain);
@@ -108,6 +100,7 @@ juce::var makeSnapshotVar(float inputGain,
     payload->setProperty("compressorLevel", compressorLevel);
     payload->setProperty("octaveTranspose", octaveTranspose);
     payload->setProperty("octaveMix", octaveMix);
+    payload->setProperty("octaveLevel", octaveLevel);
     payload->setProperty("octaveTone", octaveTone);
     payload->setProperty("octaveMonoDetector", octaveMonoDetector);
     payload->setProperty("doublerMix", doublerMix);
@@ -136,7 +129,6 @@ juce::var makeSnapshotVar(float inputGain,
     payload->setProperty("synthFuzzDetune", synthFuzzDetune);
     payload->setProperty("synthFuzzDrive", synthFuzzDrive);
     payload->setProperty("synthFuzzLevel", synthFuzzLevel);
-    payload->setProperty("outputGain", outputGain);
     payload->setProperty("eqBands", eqBands);
     payload->setProperty("reverbSize", reverbSize);
     payload->setProperty("reverbDamping", reverbDamping);
@@ -156,21 +148,70 @@ juce::var makeSnapshotVar(float inputGain,
     payload->setProperty("tunerBypassed", tunerBypassed);
     payload->setProperty("gateBypassed", gateBypassed);
     payload->setProperty("analyzerEnabled", analyzerEnabled);
-    payload->setProperty("inputPeak", inputPeak);
-    payload->setProperty("outputPeak", outputPeak);
-    payload->setProperty("inputClipping", inputClipping);
-    payload->setProperty("outputClipping", outputClipping);
+
+    return juce::var(payload.release());
+}
+
+// Writes the telemetry keys into an existing payload object. Kept separate from
+// the parameter values so that the only consumers of the processor's peak and
+// clipping atomics are here, and the parameter-change path never re-runs the
+// FFTs or the response-curve maths.
+void setTelemetryProperties(juce::DynamicObject& payload,
+                            float inputPeak,
+                            float outputPeak,
+                            bool  inputClipping,
+                            bool  outputClipping,
+                            juce::var tunerFrequency,
+                            juce::var tunerCents,
+                            juce::var tunerNoteIndex,
+                            juce::var tunerLevel,
+                            juce::var responseCurve,
+                            juce::var leftSpectrum,
+                            juce::var rightSpectrum)
+{
+    payload.setProperty("inputPeak", inputPeak);
+    payload.setProperty("outputPeak", outputPeak);
+    payload.setProperty("inputClipping", inputClipping);
+    payload.setProperty("outputClipping", outputClipping);
 
     auto tuner = std::make_unique<juce::DynamicObject>();
     tuner->setProperty("frequency", tunerFrequency);
     tuner->setProperty("cents", tunerCents);
     tuner->setProperty("noteIndex", tunerNoteIndex);
     tuner->setProperty("level", tunerLevel);
-    payload->setProperty("tuner", juce::var(tuner.release()));
+    payload.setProperty("tuner", juce::var(tuner.release()));
 
-    payload->setProperty("responseCurve", responseCurve);
-    payload->setProperty("leftSpectrum", leftSpectrum);
-    payload->setProperty("rightSpectrum", rightSpectrum);
+    payload.setProperty("responseCurve", responseCurve);
+    payload.setProperty("leftSpectrum", leftSpectrum);
+    payload.setProperty("rightSpectrum", rightSpectrum);
+}
+
+// Builds the telemetry-only payload emitted by the timer.
+juce::var makeTelemetryVar(float inputPeak,
+                           float outputPeak,
+                           bool  inputClipping,
+                           bool  outputClipping,
+                           juce::var tunerFrequency,
+                           juce::var tunerCents,
+                           juce::var tunerNoteIndex,
+                           juce::var tunerLevel,
+                           juce::var responseCurve,
+                           juce::var leftSpectrum,
+                           juce::var rightSpectrum)
+{
+    auto payload = std::make_unique<juce::DynamicObject>();
+    setTelemetryProperties(*payload,
+                           inputPeak,
+                           outputPeak,
+                           inputClipping,
+                           outputClipping,
+                           tunerFrequency,
+                           tunerCents,
+                           tunerNoteIndex,
+                           tunerLevel,
+                           responseCurve,
+                           leftSpectrum,
+                           rightSpectrum);
     return juce::var(payload.release());
 }
 
@@ -255,6 +296,7 @@ juce::WebBrowserComponent::Options makeWebViewOptions(ObstacleAudioProcessor& pr
     auto compressorLevel = processor.apvts.getRawParameterValue("Compressor Level")->load();
     auto octaveTranspose = processor.apvts.getRawParameterValue("Octave Transpose")->load();
     auto octaveMix = processor.apvts.getRawParameterValue("Octave Mix")->load();
+    auto octaveLevel = processor.apvts.getRawParameterValue("Octave Level")->load();
     auto octaveTone = processor.apvts.getRawParameterValue("Octave Tone")->load();
     auto octaveMonoDetector = processor.apvts.getRawParameterValue("Octave Mono Detector")->load() > 0.5f;
     auto doublerMix = processor.apvts.getRawParameterValue("Doubler Mix")->load();
@@ -324,6 +366,82 @@ juce::WebBrowserComponent::Options makeWebViewOptions(ObstacleAudioProcessor& pr
                          .getChildFile("ObstacleWebView2Data");
    #endif
 
+    auto initialPayload = makeParameterValuesVar(input,
+                                     output,
+                                     monoInput,
+                                     mute,
+                                     tunerReference,
+                                     gateThreshold,
+                                     compressorAmount,
+                                     compressorTone,
+                                     compressorLevel,
+                                     octaveTranspose,
+                                     octaveMix,
+                                     octaveLevel,
+                                     octaveTone,
+                                     octaveMonoDetector,
+                                     doublerMix,
+                                     doublerDelay,
+                                     doublerDetune,
+                                     tremoloSpeed,
+                                     tremoloDepth,
+                                     tremoloLfoIndex,
+                                     tremoloStereoPhase,
+                                     delayMix,
+                                     delayTimeL,
+                                     delayTimeR,
+                                     delayFeedback,
+                                     delayModeIsDual,
+                                     overdriveDrive,
+                                     overdriveTone,
+                                     overdriveLevel,
+                                     drive,
+                                     distortionTone,
+                                     distortionLevel,
+                                     fuzzDrive,
+                                     fuzzTone,
+                                     fuzzLevel,
+                                     synthFuzzMix,
+                                     synthFuzzDelay,
+                                     synthFuzzDetune,
+                                     synthFuzzDrive,
+                                     synthFuzzLevel,
+                                     juce::var(eqBands),
+                                     reverbSize,
+                                     reverbDamping,
+                                     reverbMix,
+                                     reverbWidth,
+                                     eqBypassed,
+                                     overdriveBypassed,
+                                     driveBypassed,
+                                     fuzzBypassed,
+                                     synthFuzzBypassed,
+                                     compressorBypassed,
+                                     octaveBypassed,
+                                     doublerBypassed,
+                                     tremoloBypassed,
+                                     delayBypassed,
+                                     reverbBypassed,
+                                     tunerBypassed,
+                                     gateBypassed,
+                                     analyzerEnabled);
+
+    // The initial payload keeps the full parameter set plus zeroed telemetry so
+    // the React initial read has the same shape as the live events.
+    if (auto* obj = initialPayload.getDynamicObject())
+        setTelemetryProperties(*obj,
+                               0.0f,
+                               0.0f,
+                               false,
+                               false,
+                               0.0f,
+                               0.0f,
+                               -1,
+                               -60.0f,
+                               juce::var(),
+                               juce::var(),
+                               juce::var());
+
     return juce::WebBrowserComponent::Options{}
         .withBackend(juce::WebBrowserComponent::Options::Backend::webview2)
         .withWinWebView2Options(juce::WebBrowserComponent::Options::WinWebView2{}
@@ -341,6 +459,13 @@ juce::WebBrowserComponent::Options makeWebViewOptions(ObstacleAudioProcessor& pr
 
             relativePath = relativePath.fromFirstOccurrenceOf("/", false, false);
             auto targetFile = distRoot.getChildFile(relativePath);
+
+            // File::getChildFile() returns absolute paths unchanged, so a
+            // request like "/C:/Windows/..." (or a ".." traversal) would
+            // otherwise resolve outside the bundled UI. Only serve files that
+            // actually live under distRoot.
+            if (!targetFile.isAChildOf(distRoot))
+                return std::nullopt;
 
             if (!targetFile.existsAsFile())
                 return std::nullopt;
@@ -370,75 +495,7 @@ juce::WebBrowserComponent::Options makeWebViewOptions(ObstacleAudioProcessor& pr
                     parameter->setValueNotifyingHost(parameter->convertTo0to1(value));
             }
         })
-        .withInitialisationData("parameters", makeSnapshotVar(input,
-                                    output,
-                                    monoInput,
-                                    mute,
-                                    tunerReference,
-                                    gateThreshold,
-                                    compressorAmount,
-                                    compressorTone,
-                                    compressorLevel,
-                                    octaveTranspose,
-                                    octaveMix,
-                                    octaveTone,
-                                    octaveMonoDetector,
-                                    doublerMix,
-                                    doublerDelay,
-                                    doublerDetune,
-                                    tremoloSpeed,
-                                    tremoloDepth,
-                                    tremoloLfoIndex,
-                                    tremoloStereoPhase,
-                                    delayMix,
-                                    delayTimeL,
-                                    delayTimeR,
-                                    delayFeedback,
-                                    delayModeIsDual,
-                                    overdriveDrive,
-                                    overdriveTone,
-                                    overdriveLevel,
-                                    drive,
-                                    distortionTone,
-                                    distortionLevel,
-                                    fuzzDrive,
-                                    fuzzTone,
-                                    fuzzLevel,
-                                    synthFuzzMix,
-                                    synthFuzzDelay,
-                                    synthFuzzDetune,
-                                    synthFuzzDrive,
-                                    synthFuzzLevel,
-                                    juce::var(eqBands),
-                                    reverbSize,
-                                    reverbDamping,
-                                    reverbMix,
-                                    reverbWidth,
-                                    eqBypassed,
-                                    overdriveBypassed,
-                                    driveBypassed,
-                                    fuzzBypassed,
-                                    synthFuzzBypassed,
-                                    compressorBypassed,
-                                    octaveBypassed,
-                                    doublerBypassed,
-                                    tremoloBypassed,
-                                    delayBypassed,
-                                    reverbBypassed,
-                                    tunerBypassed,
-                                    gateBypassed,
-                                    analyzerEnabled,
-                                    0.0f,
-                                    0.0f,
-                                    false,
-                                    false,
-                                    0.0f,
-                                    0.0f,
-                                    -1,
-                                    -60.0f,
-                                    juce::var(),
-                                    juce::var(),
-                                    juce::var()));
+        .withInitialisationData("parameters", initialPayload);
 }
 }
 
@@ -486,6 +543,7 @@ ObstacleWebViewEditor::ObstacleWebViewEditor(ObstacleAudioProcessor& p)
     audioProcessor.apvts.addParameterListener(paramCompressorLevel, this);
     audioProcessor.apvts.addParameterListener(paramOctaveTranspose, this);
     audioProcessor.apvts.addParameterListener(paramOctaveMix, this);
+    audioProcessor.apvts.addParameterListener(paramOctaveLevel, this);
     audioProcessor.apvts.addParameterListener(paramOctaveTone, this);
     audioProcessor.apvts.addParameterListener(paramOctaveMonoDetector, this);
     audioProcessor.apvts.addParameterListener(paramDoublerMix, this);
@@ -536,7 +594,7 @@ ObstacleWebViewEditor::ObstacleWebViewEditor(ObstacleAudioProcessor& p)
     audioProcessor.apvts.addParameterListener(paramReverbBypassed, this);
     audioProcessor.apvts.addParameterListener(paramAnalyzerEnabled, this);
 
-    startTimerHz(60);
+    startTimerHz(30);
 
     setSize(960, 640);
 }
@@ -555,6 +613,7 @@ ObstacleWebViewEditor::~ObstacleWebViewEditor()
     audioProcessor.apvts.removeParameterListener(paramCompressorLevel, this);
     audioProcessor.apvts.removeParameterListener(paramOctaveTranspose, this);
     audioProcessor.apvts.removeParameterListener(paramOctaveMix, this);
+    audioProcessor.apvts.removeParameterListener(paramOctaveLevel, this);
     audioProcessor.apvts.removeParameterListener(paramOctaveTone, this);
     audioProcessor.apvts.removeParameterListener(paramOctaveMonoDetector, this);
     audioProcessor.apvts.removeParameterListener(paramDoublerMix, this);
@@ -653,6 +712,7 @@ void ObstacleWebViewEditor::parameterChanged(const juce::String& parameterID, fl
         && parameterID != paramCompressorLevel
         && parameterID != paramOctaveTranspose
         && parameterID != paramOctaveMix
+        && parameterID != paramOctaveLevel
         && parameterID != paramOctaveTone
         && parameterID != paramOctaveMonoDetector
         && parameterID != paramDoublerMix
@@ -712,6 +772,11 @@ void ObstacleWebViewEditor::parameterChanged(const juce::String& parameterID, fl
         && parameterID != paramAnalyzerEnabled)
         return;
 
+    // parameterChanged can be called from the audio thread; only flag the
+    // curve here and rebuild it on the timer.
+    if (parameterID == paramEqBypassed || parameterID.startsWith("EQ Band "))
+        responseCurveNeedsUpdate.store(true, std::memory_order_release);
+
     parameterUpdatePending.store(true, std::memory_order_release);
     triggerAsyncUpdate();
 }
@@ -721,20 +786,20 @@ void ObstacleWebViewEditor::handleAsyncUpdate()
     if (!parameterUpdatePending.exchange(false, std::memory_order_acq_rel))
         return;
 
-    emitParameterSnapshotToFrontend();
+    emitParameterSnapshotToFrontend(makeParameterValuesSnapshot());
 }
 
 void ObstacleWebViewEditor::timerCallback()
 {
-    emitParameterSnapshotToFrontend();
+    emitParameterSnapshotToFrontend(makeTelemetrySnapshot());
 }
 
-void ObstacleWebViewEditor::emitParameterSnapshotToFrontend()
+void ObstacleWebViewEditor::emitParameterSnapshotToFrontend(const juce::var& payload)
 {
-    webView.emitEventIfBrowserIsVisible(juce::Identifier(backendParametersEvent), makeParameterSnapshot());
+    webView.emitEventIfBrowserIsVisible(juce::Identifier(backendParametersEvent), payload);
 }
 
-juce::var ObstacleWebViewEditor::makeParameterSnapshot()
+juce::var ObstacleWebViewEditor::makeParameterValuesSnapshot()
 {
     auto input = audioProcessor.apvts.getRawParameterValue(paramInputGain)->load();
     auto output = audioProcessor.apvts.getRawParameterValue(paramOutputGain)->load();
@@ -747,6 +812,7 @@ juce::var ObstacleWebViewEditor::makeParameterSnapshot()
     auto compressorLevel = audioProcessor.apvts.getRawParameterValue(paramCompressorLevel)->load();
     auto octaveTranspose = audioProcessor.apvts.getRawParameterValue(paramOctaveTranspose)->load();
     auto octaveMix = audioProcessor.apvts.getRawParameterValue(paramOctaveMix)->load();
+    auto octaveLevel = audioProcessor.apvts.getRawParameterValue(paramOctaveLevel)->load();
     auto octaveTone = audioProcessor.apvts.getRawParameterValue(paramOctaveTone)->load();
     auto octaveMonoDetector = audioProcessor.apvts.getRawParameterValue(paramOctaveMonoDetector)->load() > 0.5f;
     auto doublerMix = audioProcessor.apvts.getRawParameterValue(paramDoublerMix)->load();
@@ -803,11 +869,78 @@ juce::var ObstacleWebViewEditor::makeParameterSnapshot()
     auto tunerBypassed = audioProcessor.apvts.getRawParameterValue(paramTunerBypassed)->load() > 0.5f;
     auto gateBypassed = audioProcessor.apvts.getRawParameterValue(paramGateBypassed)->load() > 0.5f;
     auto analyzerEnabled = audioProcessor.apvts.getRawParameterValue(paramAnalyzerEnabled)->load() > 0.5f;
+
+    return makeParameterValuesVar(input,
+                                  output,
+                                  monoInput,
+                                  mute,
+                                  tunerReference,
+                                  gateThreshold,
+                                  compressorAmount,
+                                  compressorTone,
+                                  compressorLevel,
+                                  octaveTranspose,
+                                  octaveMix,
+                                  octaveLevel,
+                                  octaveTone,
+                                  octaveMonoDetector,
+                                  doublerMix,
+                                  doublerDelay,
+                                  doublerDetune,
+                                  tremoloSpeed,
+                                  tremoloDepth,
+                                  tremoloLfoIndex,
+                                  tremoloStereoPhase,
+                                  delayMix,
+                                  delayTimeL,
+                                  delayTimeR,
+                                  delayFeedback,
+                                  delayModeIsDual,
+                                  overdriveDrive,
+                                  overdriveTone,
+                                  overdriveLevel,
+                                  drive,
+                                  distortionTone,
+                                  distortionLevel,
+                                  fuzzDrive,
+                                  fuzzTone,
+                                  fuzzLevel,
+                                  synthFuzzMix,
+                                  synthFuzzDelay,
+                                  synthFuzzDetune,
+                                  synthFuzzDrive,
+                                  synthFuzzLevel,
+                                  juce::var(eqBands),
+                                  reverbSize,
+                                  reverbDamping,
+                                  reverbMix,
+                                  reverbWidth,
+                                  eqBypassed,
+                                  overdriveBypassed,
+                                  driveBypassed,
+                                  fuzzBypassed,
+                                  synthFuzzBypassed,
+                                  compressorBypassed,
+                                  octaveBypassed,
+                                  doublerBypassed,
+                                  tremoloBypassed,
+                                  delayBypassed,
+                                  reverbBypassed,
+                                  tunerBypassed,
+                                  gateBypassed,
+                                  analyzerEnabled);
+}
+
+// The peaks and clipping flags are exchange-and-consume, so they are read only
+// here; the parameter-change path never touches them.
+juce::var ObstacleWebViewEditor::makeTelemetrySnapshot()
+{
     auto inputPeak = audioProcessor.consumeInputPeakLevel();
     auto outputPeak = audioProcessor.consumeOutputPeakLevel();
     auto inputClipping = audioProcessor.consumeInputClippingFlag();
     auto outputClipping = audioProcessor.consumeOutputClippingFlag();
-    auto responseCurve = buildResponseCurve();
+
+    const auto& responseCurve = getResponseCurve();
     auto leftSpectrum = buildSpectrumFromFifo(audioProcessor.leftChannelFifo, leftMonoBuffer, leftFftScratch, leftFftResult);
     auto rightSpectrum = buildSpectrumFromFifo(audioProcessor.rightChannelFifo, rightMonoBuffer, rightFftScratch, rightFftResult);
 
@@ -816,75 +949,17 @@ juce::var ObstacleWebViewEditor::makeParameterSnapshot()
     const auto tunerNoteIndex = audioProcessor.getTunerDetectedNoteIndex();
     const auto tunerLevel = audioProcessor.getTunerDetectedLevelDb();
 
-    return makeSnapshotVar(input,
-                           output,
-                           monoInput,
-                           mute,
-                           tunerReference,
-                           gateThreshold,
-                           compressorAmount,
-                           compressorTone,
-                           compressorLevel,
-                           octaveTranspose,
-                           octaveMix,
-                           octaveTone,
-                           octaveMonoDetector,
-                           doublerMix,
-                           doublerDelay,
-                           doublerDetune,
-                           tremoloSpeed,
-                           tremoloDepth,
-                           tremoloLfoIndex,
-                           tremoloStereoPhase,
-                           delayMix,
-                           delayTimeL,
-                           delayTimeR,
-                           delayFeedback,
-                             delayModeIsDual,
-                             overdriveDrive,
-                             overdriveTone,
-                             overdriveLevel,
-                             drive,
-                            distortionTone,
-                            distortionLevel,
-                             fuzzDrive,
-                             fuzzTone,
-                             fuzzLevel,
-                             synthFuzzMix,
-                             synthFuzzDelay,
-                             synthFuzzDetune,
-                             synthFuzzDrive,
-                             synthFuzzLevel,
-                             juce::var(eqBands),
-                            reverbSize,
-                            reverbDamping,
-                            reverbMix,
-                            reverbWidth,
-                            eqBypassed,
-                            overdriveBypassed,
-                             driveBypassed,
-                            fuzzBypassed,
-                            synthFuzzBypassed,
-                            compressorBypassed,
-                           octaveBypassed,
-                           doublerBypassed,
-                           tremoloBypassed,
-                           delayBypassed,
-                           reverbBypassed,
-                           tunerBypassed,
-                           gateBypassed,
-                           analyzerEnabled,
-                           inputPeak,
-                           outputPeak,
-                           inputClipping,
-                           outputClipping,
-                           tunerFrequency,
-                           tunerCents,
-                           tunerNoteIndex,
-                           tunerLevel,
-                           makeFloatArrayVar(responseCurve),
-                           makeFloatArrayVar(leftSpectrum),
-                           makeFloatArrayVar(rightSpectrum));
+    return makeTelemetryVar(inputPeak,
+                            outputPeak,
+                            inputClipping,
+                            outputClipping,
+                            tunerFrequency,
+                            tunerCents,
+                            tunerNoteIndex,
+                            tunerLevel,
+                            makeFloatArrayVar(responseCurve),
+                            makeFloatArrayVar(leftSpectrum),
+                            makeFloatArrayVar(rightSpectrum));
 }
 
 juce::var ObstacleWebViewEditor::makeFloatArrayVar(const std::vector<float>& values)
@@ -971,10 +1046,33 @@ std::vector<float> ObstacleWebViewEditor::buildSpectrumFromFifo(SingleChannelSam
     return fftResult;
 }
 
+const std::vector<float>& ObstacleWebViewEditor::getResponseCurve()
+{
+    if (responseCurveNeedsUpdate.exchange(false, std::memory_order_acq_rel))
+    {
+        // Before the host has called prepareToPlay there is no sample rate to
+        // build the filter coefficients from; leave the flag set and retry on
+        // the next timer tick.
+        if (audioProcessor.getSampleRate() <= 0.0)
+            responseCurveNeedsUpdate.store(true, std::memory_order_release);
+        else
+            cachedResponseCurve = buildResponseCurve();
+    }
+
+    return cachedResponseCurve;
+}
+
 std::vector<float> ObstacleWebViewEditor::buildResponseCurve() const
 {
+    // The editor can be opened before the host has called prepareToPlay.
+    // Building peak-filter coefficients at a zero sample rate would divide
+    // by zero (and trip JUCE's assertions in Debug), so show a flat curve
+    // until the real sample rate is known.
+    const auto sampleRate = audioProcessor.getSampleRate();
+    if (sampleRate <= 0.0)
+        return std::vector<float>(static_cast<size_t>(spectrumPoints), 0.0f);
+
     auto settings = getChainSettings(audioProcessor.apvts);
-    const auto sampleRate = juce::jmax(1.0, audioProcessor.getSampleRate());
 
     static constexpr std::array<float, 10> eqFrequencies {
         31.25f, 62.5f, 125.0f, 250.0f, 500.0f,

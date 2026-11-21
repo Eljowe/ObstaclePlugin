@@ -23,12 +23,16 @@ private:
 
     juce::String resolveWebUiUrl() const;
     juce::File getWebUiDistRoot() const;
-    void emitParameterSnapshotToFrontend();
-    juce::var makeParameterSnapshot();
+    void emitParameterSnapshotToFrontend(const juce::var& payload);
+    juce::var makeParameterValuesSnapshot();
+    juce::var makeTelemetrySnapshot();
     std::vector<float> buildSpectrumFromFifo(SingleChannelSampleFifo<ObstacleAudioProcessor::BlockType>& fifo,
                                              juce::AudioBuffer<float>& monoBuffer,
                                              std::vector<float>& fftScratch,
                                              std::vector<float>& fftResult);
+    // Rebuilt lazily on the timer (or on an EQ change) so the parameter-change
+    // path never runs the filter maths.
+    const std::vector<float>& getResponseCurve();
     std::vector<float> buildResponseCurve() const;
     static juce::var makeFloatArrayVar(const std::vector<float>& values);
 
@@ -42,6 +46,7 @@ private:
     static constexpr const char* paramCompressorLevel = "Compressor Level";
     static constexpr const char* paramOctaveTranspose = "Octave Transpose";
     static constexpr const char* paramOctaveMix = "Octave Mix";
+    static constexpr const char* paramOctaveLevel = "Octave Level";
     static constexpr const char* paramOctaveTone = "Octave Tone";
     static constexpr const char* paramOctaveMonoDetector = "Octave Mono Detector";
     static constexpr const char* paramOctaveBypassed = "Octave Bypassed";
@@ -93,6 +98,8 @@ public:
     juce::Label fallbackLabel;
 
     std::atomic<bool> parameterUpdatePending { false };
+    std::vector<float> cachedResponseCurve;
+    std::atomic<bool> responseCurveNeedsUpdate { true };
 
     static constexpr int fftOrder = 11;
     static constexpr int fftSize = 1 << fftOrder;
